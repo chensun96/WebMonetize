@@ -13,8 +13,6 @@ from tqdm.auto import tqdm
 tqdm.pandas()
 
 from adblockparser import AdblockRules
-import json
-import re
 
 
 from collections import Counter
@@ -467,7 +465,10 @@ def get_single_label(label):
 
 
 def label_cookiepedia(df_exfils, df_decoration_edges):
-    df_dec = pd.read_csv("declared_cookie_labels.csv")
+    print("Current Working Directory:", os.getcwd())
+
+    full_path = "/home/data/chensun/affi_project/purl/code/labelling_scripts/"
+    df_dec = pd.read_csv(full_path + "declared_cookie_labels.csv")
 
     df_exfils["cookie_name"] = df_exfils["src"].apply(get_cookie_name)
     df_exfils["cookie_domain"] = df_exfils["src"].apply(get_cookie_domain)
@@ -682,19 +683,95 @@ def label_decorations(df, df_exfils, filterlists, filterlist_rules):
 
     return df_decoration_edges
 
+def most_frequent_url_per_visit(df):
+    # Group by 'visit_id' and then find the most frequent 'top_level_url' for each group
+    most_frequent_url = df.groupby('visit_id')['top_level_url'].agg(lambda x: x.value_counts().idxmax())
+    most_frequent_url_df = most_frequent_url.reset_index()
+    most_frequent_url_df.columns = ['visit_id', 'top_level_url']
+    return most_frequent_url
+
+
+
+def label_url_type(df, url_type):
+    df_document = df[(df["type"] == "Document")]
+    df_edges = df[df["graph_attr"] == "Edge"]
+
+    # Filter edges to include only rows with names that are in df_document
+    df_edges = df_edges[df_edges['src'].isin(df_document['name'])]
+
+    # Sort the edges by 'src' 'time_stamp', to get the first url triggrer the graph
+    df_edges['time_stamp'] = pd.to_datetime(df_edges['time_stamp'], errors='coerce')
+    df_edges_sorted = df_edges.sort_values(by=['src', 'time_stamp'])
+    # Drop duplicates, keeping the first occurrence of each 'src' within each 'visit_id'
+    df_edges_sorted = df_edges_sorted.drop_duplicates(subset=['visit_id', 'src'])
+
+    # df_url_sorted: contains all the main frame url ("Document" type) within order
+    df_url_sorted = df_edges_sorted[
+        [
+            "visit_id",
+            "src",
+            "top_level_domain",
+            "attr",
+            "time_stamp",
+            "is_in_phase1",
+        ]
+    ]
+    df_url_sorted = df_url_sorted.sort_values(by=['visit_id', 'time_stamp'])
+    df_url_sorted = df_url_sorted.rename(
+        columns={
+            "src": "url",
+            "top_level_domain": "domain"
+        }
+    )
+
+    # Column[Domain_list] contains all the main frame url's domain
+    # Group by 'visit_id' and aggregate 'domain' into an ordered list 
+    domain_list = df_url_sorted.groupby('visit_id')['domain'].agg(lambda x: ' || '.join(x))
+    # Map the aggregated domain list back to a new column in the original dataframe
+    df_url_sorted['domain_list'] = df_url_sorted['visit_id'].map(domain_list)
+    df_url_sorted = df_url_sorted.rename(
+        columns={
+            "domain_list": "name",
+        }
+    )
+    df_url_sorted['label'] = str(url_type)
+
+
+    # get the top_level_url 
+    # this step can remove when sqlite is exist
+    df_top_level_url = most_frequent_url_per_visit(df_edges)
+    # print(df_top_level_url.head())
+    df_url_sorted = df_url_sorted.merge(df_top_level_url, on='visit_id', how='left')
+
+
+    return df_url_sorted
 
 if __name__ == "__main__":
-    df_graph = pd.read_csv("../graph_test.csv")
 
-    FILTERLIST_DIR = "filterlists"
-    if not os.path.isdir(FILTERLIST_DIR):
-        os.makedirs(FILTERLIST_DIR)
-        download_lists(FILTERLIST_DIR)
+    url_type = ["affiliate", "ads", "normal"]
+    #url_type = ['affiliate']
+    for type_name in url_type:
 
-    filterlists, filterlist_rules = create_filterlist_rules(FILTERLIST_DIR)
+        full_graph_folder = f"../../output/{type_name}/fullGraph"
+        phaseA_folder = f"../../output/{type_name}/phaseA"
 
-    df_exfils = pd.read_csv("../exfils_test.csv")
+        for filename in os.listdir(full_graph_folder):
+            if filename.startswith("graph_") and filename.endswith(".csv"):
+                # get the graph_{i}.csv, product label_{i}.csv
+                fullGraph_path = os.path.join(full_graph_folder, filename)
+                print(fullGraph_path)
+                df_fullGraph = pd.read_csv(fullGraph_path)
+                df_labels = label_url_type(df_fullGraph, type_name)
 
-    df_labels = label_decorations(df_graph, df_exfils, filterlists, filterlist_rules)
+                output_filename = filename.replace('graph_', 'labels_')
 
-    # df_labels.to_csv('../labels_test.csv', index=False)
+                fullGraph_labels_path = os.path.join(full_graph_folder, output_filename)
+                df_labels.to_csv(fullGraph_labels_path, index=False)
+
+      
+                phaseA_labels_path = os.path.join(phaseA_folder, output_filename)
+                df_labels.to_csv(phaseA_labels_path, index=False)
+
+
+
+    

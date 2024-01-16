@@ -4,10 +4,14 @@ from tqdm import tqdm
 import pandas as pd
 import gc
 from yaml import full_load
+
+from checking_affiliate import check_affiliate_link
 from feature_extraction import extract_graph_features
+from feature_extraction import extract_graph_features_phase1
 from networkx.readwrite import json_graph
+import graph_approach_features
 import json
-import leveldb
+# import leveldb
 import argparse
 
 import timeit
@@ -16,6 +20,9 @@ import traceback
 import time
 import os
 import tldextract
+
+import networkx as nx
+import matplotlib.pyplot as plt
 
 pd.set_option("display.max_rows", None, "display.max_columns", None)
 
@@ -36,6 +43,14 @@ def create_graph(df):
     :rtype: Graph
     """
     G = gs.build_graph(df)
+    
+    # try to visualize the graph
+    # plt.figure(figsize=(12, 12))  # Set the size of the figure
+    # pos = nx.spring_layout(G)  # Positions for all nodes using one of the layout algorithms
+    # nx.draw(G, pos, with_labels=True, node_size=500, node_color="lightblue", linewidths=0.25, font_size=10, font_weight="bold", edge_color="gray")
+    # plt.title("Graph Visualization")
+    # plt.savefig('/home/ubuntu/purl/graph/graph.png')
+
     tqdm.write(f"Built graph of {len(G.nodes())} nodes and {len(G.edges())} edges")
     return G
 
@@ -60,6 +75,17 @@ def get_features(pdf, G, features_file):
     df_features = extract_graph_features(pdf, G, pdf.visit_id[0], None, feature_config)
     return df_features
 
+
+def get_features_phase1(pdf, G, features_file):
+    """Getter to generate the features of each node in a graph.
+    :param pdf: pandas df of nodes and edges in a graph.
+    :param G: Graph object representation of the pdf.
+    :return: dataframe of features per node in the graph
+    """
+    # Generate features for each node in our graph
+    feature_config = load_features_info(features_file)
+    df_features = extract_graph_features_phase1(pdf, G, pdf.visit_id[0], None, feature_config)
+    return df_features
 
 def find_setter_domain(setter):
     try:
@@ -165,58 +191,128 @@ def read_sql_crawl_data(visit_id, db_file, conn):
     :param visit_id: visit ID of a crawl URL.
     :return: Parsed information (nodes and edges) in pandas df.
     """
+
+    # Directory where CSV files will be saved
+    #dir_name = f"../graph_data/visit_data_{visit_id}/"
+    #os.makedirs(dir_name, exist_ok=True)
+
+    # Function to save DataFrame as CSV in the directory
+    #def save_df(df, filename):
+    #    df.to_csv(os.path.join(dir_name, filename + ".csv"), index=False)
+
     # Read tables from DB and store as DataFrames
     df_requests, df_responses, df_redirects, call_stacks, javascript = gs.read_tables(
         conn, visit_id
     )
-    df_js_nodes, df_js_edges = gs.build_html_components(javascript)
-    df_request_nodes, df_request_edges = gs.build_request_components(
-        df_requests, df_responses, df_redirects, call_stacks
+
+    # Read only redirect phase data
+    df_requests_phase1, df_responses_phase1, df_redirects_phase1, call_stacks_phase1, javascript_phase1 = gs.read_tables_phase1(
+        conn, visit_id
     )
 
-    df_decoration_nodes, df_decoration_edges = gs.build_decoration_components(
-        df_request_nodes
+    # Create a column "is_in_phase1"
+    # Mark or differentiate the data in df_http_requests_phase1 from df_http_requests
+    df_requests, df_responses, df_redirects, call_stacks, javascript = gs.add_marker_column(
+        df_requests, df_responses, df_redirects, call_stacks, javascript,
+        df_requests_phase1, df_responses_phase1, df_redirects_phase1, call_stacks_phase1, javascript_phase1
     )
-    df_all_storage_nodes, df_all_storage_edges = gs.build_storage_components(javascript)
-    df_http_cookie_nodes, df_http_cookie_edges = gs.build_http_cookie_components(
-        df_request_edges, df_request_nodes
-    )
-    df_storage_node_setter = find_setters(
-        df_all_storage_nodes,
-        df_http_cookie_nodes,
-        df_all_storage_edges,
-        df_http_cookie_edges,
-    )
-    # Concatenate to get all nodes and edges
-    df_request_nodes["domain"] = None
-    df_decoration_nodes["domain"] = None
-    df_all_nodes = pd.concat(
-        [df_js_nodes, df_request_nodes, df_storage_node_setter, df_decoration_nodes]
-    )
-    df_all_nodes["domain"] = df_all_nodes.apply(find_domain, axis=1)
-    df_all_nodes["top_level_domain"] = df_all_nodes["top_level_url"].apply(find_tld)
-    df_all_nodes["setter_domain"] = df_all_nodes["setter"].apply(find_setter_domain)
-    # df_all_nodes['name'] = df_all_nodes.apply(update_storage_names, axis=1)
-    df_all_nodes = df_all_nodes.drop_duplicates()
-    df_all_nodes["graph_attr"] = "Node"
+    
+    #save_df(df_requests, "df_requests")
+    #save_df(df_responses, "df_responses")
+    #save_df(df_redirects, "df_redirects")
+    #save_df(call_stacks, "call_stacks")
+    #save_df(javascript, "javascript")
+    
 
-    df_all_edges = pd.concat(
-        [
-            df_js_edges,
-            df_request_edges,
-            df_all_storage_edges,
-            df_http_cookie_edges,
-            df_decoration_edges,
-        ]
-    )
-    df_all_edges = df_all_edges.drop_duplicates()
-    df_all_edges["top_level_domain"] = df_all_edges["top_level_url"].apply(find_tld)
-    df_all_edges["graph_attr"] = "Edge"
+    try:
+        df_js_nodes, df_js_edges = gs.build_html_components(javascript)
+        if df_js_nodes.empty:
+            raise ValueError(" Invalid data type.")
+        #else:
+            #save_df(df_js_nodes, "df_js_nodes")
+            #save_df(df_js_edges, "df_js_edges")
+    except ValueError as e:
+        print(e)
+        df_all_graph = pd.DataFrame()
+        return df_all_graph
+    
 
-    df_all_graph = pd.concat([df_all_nodes, df_all_edges])
-    df_all_graph = df_all_graph.astype(
-        {"type": "category", "response_status": "category"}
-    )
+    try:
+        df_request_nodes, df_request_edges = gs.build_request_components(
+            df_requests, df_responses, df_redirects, call_stacks
+        )
+        if df_request_edges.empty:
+            raise ValueError("df_request_edges returned from get_cs_edges is empty.")
+        else:
+            #save_df(df_request_nodes, "df_request_nodes")
+            #save_df(df_request_edges, "df_request_edges")
+
+            df_decoration_nodes, df_decoration_edges = gs.build_decoration_components(
+                df_request_nodes
+            )
+
+            #save_df(df_decoration_nodes, "df_decoration_nodes")
+            #save_df(df_decoration_edges, "df_decoration_edges")
+
+            df_all_storage_nodes, df_all_storage_edges = gs.build_storage_components(javascript)
+
+            #save_df(df_all_storage_nodes, "df_all_storage_nodes")
+            #save_df(df_all_storage_edges, "df_all_storage_edges")
+
+            df_http_cookie_nodes, df_http_cookie_edges = gs.build_http_cookie_components(
+                    df_request_edges, df_request_nodes
+            )
+
+            #save_df(df_http_cookie_nodes, "df_http_cookie_nodes")
+            #save_df(df_http_cookie_edges, "df_http_cookie_edges")
+
+            df_storage_node_setter = find_setters(
+                df_all_storage_nodes,
+                df_http_cookie_nodes,
+                df_all_storage_edges,
+                df_http_cookie_edges,
+            )
+
+            #save_df(df_storage_node_setter, "df_storage_node_setter")
+
+            # Concatenate to get all nodes and edges
+            df_request_nodes["domain"] = None
+            df_decoration_nodes["domain"] = None
+            df_all_nodes = pd.concat(
+                [df_js_nodes, df_request_nodes, df_storage_node_setter, df_decoration_nodes]
+            )
+            df_all_nodes["domain"] = df_all_nodes.apply(find_domain, axis=1)
+            df_all_nodes["top_level_domain"] = df_all_nodes["top_level_url"].apply(find_tld)
+            df_all_nodes["setter_domain"] = df_all_nodes["setter"].apply(find_setter_domain)
+            # df_all_nodes['name'] = df_all_nodes.apply(update_storage_names, axis=1)
+            df_all_nodes = df_all_nodes.drop_duplicates()
+            df_all_nodes["graph_attr"] = "Node"
+
+            df_all_edges = pd.concat(
+                [
+                    df_js_edges,
+                    df_request_edges,
+                    df_all_storage_edges,
+                    df_http_cookie_edges,
+                    df_decoration_edges,
+                ]
+            )
+            df_all_edges = df_all_edges.drop_duplicates()
+            df_all_edges["top_level_domain"] = df_all_edges["top_level_url"].apply(find_tld)
+            df_all_edges["graph_attr"] = "Edge"
+
+            df_all_graph = pd.concat([df_all_nodes, df_all_edges])
+            df_all_graph = df_all_graph.astype(
+                {"type": "category", "response_status": "category"}
+            )
+
+            #save_df(df_all_nodes, "df_all_nodes")
+            #save_df(df_all_edges, "df_all_edges")
+            #save_df(df_all_graph, "df_all_graph")
+
+    except ValueError as e:
+        print(e)
+        df_all_graph = pd.DataFrame()
 
     return df_all_graph
 
@@ -245,6 +341,94 @@ def get_features(pdf, G, visit_id, features_file, ldb_file, tag):
     df_features = extract_graph_features(pdf, G, visit_id, ldb, feature_config, tag)
     return df_features
 
+def get_features_phase1(pdf, G, features_file):
+    """Getter to generate the features of each node in a graph.
+    :param pdf: pandas df of nodes and edges in a graph.
+    :param G: Graph object representation of the pdf.
+    :return: dataframe of features per node in the graph
+    """
+    # Generate features for each node in our graph
+    feature_config = load_features_info(features_file)
+    df_features = extract_graph_features_phase1(pdf, G, pdf.visit_id[0], None, feature_config)
+    return df_features
+
+def get_features_phase1(pdf, G, visit_id, features_file, ldb_file, tag):
+    """Getter to generate the features of each node in a graph.
+    :param pdf: pandas df of nodes and edges in a graph.
+    :param G: Graph object representation of the pdf.
+    :return: dataframe of features per node in the graph
+    """
+    # Generate features for each node in our graph
+    feature_config = load_features_info(features_file)
+    # ldb = leveldb.LevelDB(ldb_file)
+    # ldb = plyvel.DB(ldb_file)
+    ldb = None
+
+    df_features = extract_graph_features_phase1(pdf, G, visit_id, ldb, feature_config, tag)
+    return df_features
+
+def most_frequent_url_per_visit(df):
+    # Group by 'visit_id' and then find the most frequent 'top_level_url' for each group
+    most_frequent_url = df.groupby('visit_id')['top_level_url'].agg(lambda x: x.value_counts().idxmax())
+    most_frequent_url_df = most_frequent_url.reset_index()
+    most_frequent_url_df.columns = ['visit_id', 'top_level_url']
+    return most_frequent_url
+
+
+
+def label_url_type(df, url_type):
+    df_document = df[(df["type"] == "Document")]
+    df_edges = df[df["graph_attr"] == "Edge"]
+
+    # Filter edges to include only rows with names that are in df_document
+    df_edges = df_edges[df_edges['src'].isin(df_document['name'])]
+
+    # Sort the edges by 'src' 'time_stamp', to get the first url triggrer the graph
+    df_edges['time_stamp'] = pd.to_datetime(df_edges['time_stamp'], errors='coerce')
+    df_edges_sorted = df_edges.sort_values(by=['src', 'time_stamp'])
+    # Drop duplicates, keeping the first occurrence of each 'src' within each 'visit_id'
+    df_edges_sorted = df_edges_sorted.drop_duplicates(subset=['visit_id', 'src'])
+
+    # df_url_sorted: contains all the main frame url ("Document" type) within order
+    df_url_sorted = df_edges_sorted[
+        [
+            "visit_id",
+            "src",
+            "top_level_domain",
+            "attr",
+            "time_stamp",
+            "is_in_phase1",
+        ]
+    ]
+    df_url_sorted = df_url_sorted.sort_values(by=['visit_id', 'time_stamp'])
+    df_url_sorted = df_url_sorted.rename(
+        columns={
+            "src": "url",
+            "top_level_domain": "domain"
+        }
+    )
+
+    # Column[Domain_list] contains all the main frame url's domain
+    # Group by 'visit_id' and aggregate 'domain' into an ordered list 
+    domain_list = df_url_sorted.groupby('visit_id')['domain'].agg(lambda x: ' || '.join(x))
+    # Map the aggregated domain list back to a new column in the original dataframe
+    df_url_sorted['domain_list'] = df_url_sorted['visit_id'].map(domain_list)
+    df_url_sorted = df_url_sorted.rename(
+        columns={
+            "domain_list": "name",
+        }
+    )
+    df_url_sorted['label'] = str(url_type)
+
+
+    # get the top_level_url 
+    # this step can remove when sqlite is exist
+    df_top_level_url = most_frequent_url_per_visit(df_edges)
+    # print(df_top_level_url.head())
+    df_url_sorted = df_url_sorted.merge(df_top_level_url, on='visit_id', how='left')
+
+
+    return df_url_sorted
 
 def apply_tasks(
     df,
@@ -252,36 +436,31 @@ def apply_tasks(
     features_file,
     ldb_file,
     graph_columns,
-    feature_columns,
     tag,
+    graph_folder
 ):
     try:
         start = time.time()
         graph_fname = "graph_" + str(tag) + ".csv"
-        if not os.path.exists(graph_fname):
-            df.reindex(columns=graph_columns).to_csv(graph_fname)
+        
+        graph_path = os.path.join(graph_folder,graph_fname)
+        if not os.path.exists(graph_path):
+            df.reindex(columns=graph_columns).to_csv(graph_path)
         else:
             df.reindex(columns=graph_columns).to_csv(
-                graph_fname, mode="a", header=False
+                graph_path, mode="a", header=False
             )
         G = create_graph(df)
-        df_features = get_features(df, G, visit_id, features_file, ldb_file, tag)
-        features_fname = "features_" + str(tag) + ".csv"
-        if not os.path.exists(features_fname):
-            df_features.reindex(columns=feature_columns).to_csv(features_fname)
-        else:
-            df_features.reindex(columns=feature_columns).to_csv(
-                features_fname, mode="a", header=False
-            )
-        end = time.time()
-        print("Extracted features:", end - start)
+
+        graph_approach_features.pipeline(df, visit_id, graph_columns, graph_path)
+
 
     except Exception as e:
         print("Errored in pipeline:", e)
         traceback.print_exc()
 
 
-def pipeline(db_file, features_file, ldb_file, tag):
+def pipeline(db_file, features_file, ldb_file, tag,  graph_folder, graph_type):
     start = time.time()
     conn = gs.get_local_db_connection(db_file)
     try:
@@ -320,202 +499,102 @@ def pipeline(db_file, features_file, ldb_file, tag):
         "content_hash",
         "post_body",
         "post_body_raw",
+        "is_in_phase1"
     ]
 
-    feature_columns = [
-        "visit_id",
-        "name",
-        "num_nodes",
-        "num_edges",
-        "nodes_div_by_edges",
-        "edges_div_by_nodes",
-        "in_degree",
-        "out_degree",
-        "in_out_degree",
-        "ancestors",
-        "descendants",
-        "closeness_centrality",
-        "average_degree_connectivity",
-        "eccentricity",
-        "clustering",
-        "is_parent_script",
-        "is_ancestor_script",
-        "ascendant_has_ad_keyword",
-        "descendant_of_eval_or_function",
-        "parent_num_get_storage",
-        "parent_num_set_storage",
-        "parent_num_get_storage_js",
-        "parent_num_set_storage_js",
-        "parent_num_get_storage_ls",
-        "parent_num_set_storage_ls",
-        "parent_num_get_storage_ls_js",
-        "parent_num_set_storage_ls_js",
-        "parent_num_cookieheader_exfil",
-        "num_script_predecessors",
-        "indirect_in_degree",
-        "indirect_out_degree",
-        "indirect_ancestors",
-        "indirect_descendants",
-        "indirect_closeness_centrality",
-        "indirect_average_degree_connectivity",
-        "indirect_eccentricity",
-        "num_exfil",
-        "indirect_all_in_degree",
-        "indirect_all_out_degree",
-        "indirect_all_ancestors",
-        "indirect_all_descendants",
-        "indirect_all_closeness_centrality",
-        "indirect_all_average_degree_connectivity",
-        "indirect_all_eccentricity",
-        "sender_exfil",
-        "sender_redirects_sent",
-        "sender_redirects_rec",
-        "shannon_entropy",
-        "max_depth_decoration",
-    ]
+    """
+    for i, row in tqdm(
+        sites_visits.iterrows(),
+        total=len(sites_visits),
+        position=0,
+        leave=True,
+        ascii=True,
+    ):
+        # For each visit, grab the visit_id and the site_url
+        visit_id = row["visit_id"]
+        site_url = row["site_url"]
+        tqdm.write("")
+           
+        tqdm.write(f"• Visit ID: {visit_id} | Site URL: {site_url}")
+        this_tag = tag
+        try:
+            start = time.time()
+        
+            # this cannot be parallelized as it is reading from the sqlite file, only one process at a time can do that
+            pdf = read_sql_crawl_data(visit_id, db_file, conn)
+            if pdf.empty:
+                print("Fail to crawl this link since empty callstacks. Ignore")
+                continue
+        
+            end = time.time()
+            print("Built graph of shape: ", pdf.shape, "in :", end - start)
+            pdf = pdf[pdf["top_level_domain"].notnull()]
+            
+            """
+    """
+            # Below is procesing. Check if a link is affiliate or not
+            normal_link = "/home/data/chensun/affi_project/purl/code/normal_potential.csv"
 
-    # feature_columns = [
-    #     "visit_id",
-    #     "name",
-    #     "num_nodes",
-    #     "num_edges",
-    #     "nodes_div_by_edges",
-    #     "edges_div_by_nodes",
-    #     "in_degree",
-    #     "out_degree",
-    #     "in_out_degree",
-    #     "ancestors",
-    #     "descendants",
-    #     "closeness_centrality",
-    #     "average_degree_connectivity",
-    #     "eccentricity",
-    #     "clustering",
-    #     "is_parent_script",
-    #     "is_ancestor_script",
-    #     "ascendant_has_ad_keyword",
-    #     "descendant_of_eval_or_function",
-    #     "parent_num_get_storage",
-    #     "parent_num_set_storage",
-    #     "parent_num_get_storage_js",
-    #     "parent_num_set_storage_js",
-    #     "parent_num_get_storage_ls",
-    #     "parent_num_set_storage_ls",
-    #     "parent_num_get_storage_ls_js",
-    #     "parent_num_set_storage_ls_js",
-    #     "parent_num_cookieheader_exfil",
-    #     "num_script_predecessors",
-    #     "indirect_in_degree",
-    #     "indirect_out_degree",
-    #     "indirect_ancestors",
-    #     "indirect_descendants",
-    #     "indirect_closeness_centrality",
-    #     "indirect_average_degree_connectivity",
-    #     "indirect_eccentricity",
-    #     "parent_num_exfil",
-    #     # "parent_num_infil",
-    #     # "parent_num_infil_content",
-    #     # "parent_num_url_exfil",
-    #     # "parent_num_header_exfil",
-    #     # "parent_num_body_exfil",
-    #     # "parent_num_ls_exfil",
-    #     # "parent_num_ls_infil",
-    #     # "parent_num_ls_infil_content",
-    #     # "parent_num_ls_url_exfil",
-    #     # "parent_num_ls_header_exfil",
-    #     # "parent_num_ls_body_exfil",
-    #     # "parent_num_ls_src",
-    #     # "parent_num_ls_dst",
-    #     "indirect_all_in_degree",
-    #     "indirect_all_out_degree",
-    #     "indirect_all_ancestors",
-    #     "indirect_all_descendants",
-    #     "indirect_all_closeness_centrality",
-    #     "indirect_all_average_degree_connectivity",
-    #     "indirect_all_eccentricity",
-    #     "sender_exfil",
-    #     "sender_redirects_sent",
-    #     "sender_redirects_rec",
-    #     "sender_requests_sent",
-    #     "sender_responses_received",
-    #     "max_depth_redirect",
-    #     "max_depth_decoration",
-    #     "decoration_entropy",
-    #     "decoration_exfil",
-    #     "decoration_infil",
-    # ]
+            # Check if the url is affiliate link or not.
+            if check_affiliate_link(visit_id, site_url, conn):
+                print("Affiliate link.")
+                
+                this_tag = this_tag + "_aff"
+            else:
+                print("Not affiliate link")
 
-    # for i, row in tqdm(
-    #     sites_visits.iterrows(),
-    #     total=len(sites_visits),
-    #     position=0,
-    #     leave=True,
-    #     ascii=True,
-    # ):
-    #     # For each visit, grab the visit_id and the site_url
-    #     visit_id = row["visit_id"]
-    #     site_url = row["site_url"]
-    #     tqdm.write("")
-    #     tqdm.write(f"• Visit ID: {visit_id} | Site URL: {site_url}")
+                columns = ["site_url"]
+                df = pd.DataFrame([[site_url]], columns=columns)
+                if not os.path.exists(normal_link):
+                    df.to_csv(normal_link, index=False)
+                else:
+                    df.to_csv(normal_link, mode='a', header=False, index=False)
 
-    #     try:
-    #         start = time.time()
-    #         # this cannot be parallelized as it is reading from the sqlite file, only one process at a time can do that
-    #         pdf = read_sql_crawl_data(visit_id, db_file, conn)
-    #         end = time.time()
-    #         print("Built graph of shape: ", pdf.shape, "in :", end - start)
-    #         pdf = pdf[pdf["top_level_domain"].notnull()]
-    #         pdf.groupby(["visit_id", "top_level_domain"]).apply(
-    #             apply_tasks,
-    #             visit_id,
-    #             features_file,
-    #             ldb_file,
-    #             graph_columns,
-    #             feature_columns,
-    #             tag,
-    #         )
+                this_tag = this_tag + "_normal"
+            """
+    """
+            # extract graph features
+            pdf.groupby(["visit_id"]).apply(
+                apply_tasks,
+                visit_id,
+                features_file,
+                ldb_file,
+                graph_columns,
+                this_tag,
+                graph_folder
+            )
 
-    #         end = time.time()
-    #         print("Finished processing graph: ", row["visit_id"], "in :", end - start)
-
-    #     except Exception as e:
-    #         fail += 1
-    #         tqdm.write(f"Fail: {fail}")
-    #         tqdm.write(f"Error: {e}")
-    #         traceback.print_exc()
-    #         pass
-
+            end = time.time()
+            print("Finished processing graph: ", row["visit_id"], "in :", end - start)
+            
+        except Exception as e:
+            fail += 1
+            tqdm.write(f"Fail: {fail}")
+            tqdm.write(f"Error: {e}")
+            traceback.print_exc()
+            pass
+    """
+     
     # Label the graph
-    print("Labeling graph")
+    print("Labelling the graph")
+    label_fname = "label_" + str(tag) + ".csv"
+    labels_path = os.path.join(graph_folder, label_fname)
+    print(labels_path)
 
-    FILTERLIST_DIR = "filterlists"
-    if not os.path.isdir(FILTERLIST_DIR):
-        os.makedirs(FILTERLIST_DIR)
-        ls.download_lists(FILTERLIST_DIR)
+    graph_fname = "graph_" + str(tag) + ".csv"       
+    graph_path = os.path.join(graph_folder,graph_fname)
+    print(graph_path)
 
-    filterlists, filterlist_rules = ls.create_filterlist_rules(FILTERLIST_DIR)
-    end = time.time()
+    df_Graph = pd.read_csv(graph_path)
+    df_labels = label_url_type(df_Graph, graph_type)
 
-    print("Finished making filterlist rules", end - start)
-    start = time.time()
-    exfils_fname = "exfils_" + str(tag) + ".csv"
-    df_exfils = pd.read_csv(exfils_fname)
+    df_labels.to_csv(labels_path, index=False)
 
-    graph_fname = "graph_" + str(tag) + ".csv"
-    df = pd.read_csv(graph_fname)
-    df_labelled = ls.label_decorations(df, df_exfils, filterlists, filterlist_rules)
-    labels_fname = "labels_new_" + str(tag) + ".csv"
-    if not os.path.exists(labels_fname):
-        df_labelled.to_csv(labels_fname)
-    else:
-        df_labelled.to_csv(labels_fname, mode="a", header=False)
-    end = time.time()
-    print("Labelled graph:", end - start)
+    
 
-    percent = (fail / len(sites_visits)) * 100
-    print(f"Fail: {fail}, Total: {len(sites_visits)}, Percentage:{percent}", db_file)
-
-
+    
 if __name__ == "__main__":
+
     # get the features file, the dataset folder and the output folder from the command line\
     parser = argparse.ArgumentParser(
         description="Process the Graph features for Link Dedecorator."
@@ -538,18 +617,31 @@ if __name__ == "__main__":
     TAG = args.tag
 
     # DB_FILE = os.path.join(FOLDER, "crawl-data.sqlite")
-    # LDB_FILE = os.path.join(FOLDER, "content.ldb")
+    # LDB_FILE = os.path.join(FOLDER, "content.ldb")da
 
     # pipeline(DB_FILE, FEATURES_FILE, LDB_FILE, TAG)
 
+    #for i in range(0, 3000, 1000):
+    #print("Processing:", i)
+    DB_FILE = os.path.join(FOLDER, f"datadir_affiliate-6000/crawl-data.sqlite")
+    LDB_FILE = os.path.join(FOLDER, f"datadir_affiliate-6000/content.ldb")
+    print(DB_FILE, LDB_FILE)
 
-    for i in range(0, 20000, 1000):
-        print("Processing:", i)
-        DB_FILE = os.path.join(FOLDER, f"datadir-{i}/crawl-data.sqlite")
-        LDB_FILE = os.path.join(FOLDER, f"datadir-{i}/content.ldb")
-        print(DB_FILE, LDB_FILE)
-        TAG = str(i)
-        pipeline(DB_FILE, FEATURES_FILE, LDB_FILE, TAG)
+    if not(os.path.exists("../output")):
+        #print("not exists")
+        os.makedirs("../output")
+
+    graph_type = "ads" #!! change to affiliate/ads/normal
+    graph_folder = os.path.join(OUTPUT,graph_type)
+    #graph_folder = os.path.abspath('../output/affiliate')  
+    #print(graph_folder)
+    #TAG = str(0)
+    pipeline(DB_FILE, FEATURES_FILE, LDB_FILE, TAG, graph_folder, graph_type)
+        
+    
+
+    
+    
 
     # folders = os.listdir(FOLDER)
     # print(folders)
@@ -560,3 +652,4 @@ if __name__ == "__main__":
     #     ldb_file = os.path.join(FOLDER, folder, "content.ldb")
     #     pipeline(DB_FILE, FEATURES_FILE, ldb_file, tag)
     #     first = True
+

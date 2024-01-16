@@ -6,6 +6,7 @@ from sklearn.metrics import (
     confusion_matrix,
     precision_score,
     recall_score,
+    f1_score
 )
 from sklearn import preprocessing
 import pandas as pd
@@ -26,6 +27,8 @@ import tldextract
 
 from imblearn.under_sampling import RandomUnderSampler
 from imblearn.over_sampling import RandomOverSampler
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import GridSearchCV
 
 
 def get_domain(url):
@@ -125,7 +128,7 @@ def report_true_pred(y_true, y_pred, name, vid, i, result_dir):
     with open(fname, "a") as f:
         f.write(
             np.array_str(
-                confusion_matrix(y_true, y_pred, labels=["Positive", "Negative"])
+                confusion_matrix(y_true, y_pred, labels=["affiliate", "ads"])
             )
             + "\n\n"
         )
@@ -172,13 +175,13 @@ def describe_classif_reports(results, result_dir):
 
 
 def log_prediction_probability(
-    clf, df_feature_test, cols, test_mani, y_pred, result_dir, tag
+    fitted_model, df_feature_test, cols, test_mani, y_pred, result_dir, tag
 ):
-    y_pred_prob = clf.predict_proba(df_feature_test)
+    y_pred_prob = fitted_model.predict_proba(df_feature_test)
 
     fname = os.path.join(result_dir, "predict_prob_" + str(tag))
     with open(fname, "w") as f:
-        class_names = [str(x) for x in clf.classes_]
+        class_names = [str(x) for x in fitted_model.classes_]
         class_names = " |$| ".join(class_names)
         f.write("Truth |$| Pred |$| " + class_names + " |$| Name |$| VID" + "\n")
 
@@ -201,7 +204,7 @@ def log_prediction_probability(
                 )
             )
 
-    preds, bias, contributions = ti.predict(clf, df_feature_test)
+    preds, bias, contributions = ti.predict(fitted_model, df_feature_test)
     fname = os.path.join(result_dir, "interpretation_" + str(tag))
     with open(fname, "w") as f:
         data_dict = {}
@@ -227,30 +230,13 @@ def classify(train, test, result_dir, tag, sample, log_pred_probability):
     test_mani = test.copy()
     clf = RandomForestClassifier(n_estimators=100)
     # clf = AdaBoostClassifier(n_estimators=100)
-    fields_to_remove = ["visit_id", "name", "label", "party", "Unnamed: 0"]
-    #'ascendant_script_length',
-    #'ascendant_script_has_fp_keyword',
-    #'ascendant_has_ad_keyword',
-    #'ascendant_script_has_eval_or_function']
-    # 'num_exfil', 'num_infil',
-    #                   'num_url_exfil', 'num_header_exfil', 'num_body_exfil',
-    #                   'num_ls_exfil', 'num_ls_infil',
-    #                   'num_ls_url_exfil', 'num_ls_header_exfil', 'num_ls_body_exfil', 'num_cookieheader_exfil',
-    # #                   # 'num_get_storage', 'num_set_storage',
-    # #                  'num_script_predecessors',
-    #                   'indirect_in_degree', 'indirect_out_degree',
-    #                   'indirect_ancestors', 'indirect_descendants',
-    #                   'indirect_closeness_centrality', 'indirect_average_degree_connectivity',
-    #                   'indirect_eccentricity', 'indirect_all_in_degree',
-    #                   'indirect_all_out_degree', 'indirect_all_ancestors',
-    #                   'indirect_all_descendants', 'indirect_all_closeness_centrality',
-    #                   'indirect_all_average_degree_connectivity', 'indirect_all_eccentricity']
-    # #  #'num_nodes', 'num_edges',
-    # #'nodes_div_by_edges', 'edges_div_by_nodes']
+    fields_to_remove = ["visit_id", "name", "label", "top_level_url", "Unnamed: 0"]
     df_feature_train = train_mani.drop(fields_to_remove, axis=1, errors="ignore")
     df_feature_test = test_mani.drop(fields_to_remove, axis=1, errors="ignore")
+    #df_feature_train.to_csv("/home/data/chensun/affi_project/purl/output/affiliate/fullGraph/df_feature_train.csv")
 
     columns = df_feature_train.columns
+    print("columns: ", columns)
     df_feature_train = df_feature_train.to_numpy()
     train_labels = train_mani.label.to_numpy()
 
@@ -294,8 +280,8 @@ def classify(train, test, result_dir, tag, sample, log_pred_probability):
     y_pred = clf.predict(df_feature_test)
 
     acc = accuracy_score(test_mani.label, y_pred)
-    prec_binary = precision_score(test_mani.label, y_pred, pos_label="Positive")
-    rec_binary = recall_score(test_mani.label, y_pred, pos_label="Positive")
+    prec_binary = precision_score(test_mani.label, y_pred, pos_label="affiliate")
+    rec_binary = recall_score(test_mani.label, y_pred, pos_label="affiliate")
     prec_micro = precision_score(test_mani.label, y_pred, average="micro")
     rec_micro = recall_score(test_mani.label, y_pred, average="micro")
     prec_macro = precision_score(test_mani.label, y_pred, average="macro")
@@ -439,8 +425,8 @@ def classify_crossval(
         df_test = df_labelled[df_labelled["visit_id"].isin(chosen_test_vid)]
 
         fname = os.path.join(result_dir, "composition")
-        train_pos = len(df_train[df_train["label"] == "Positive"])
-        test_pos = len(df_test[df_test["label"] == "Positive"])
+        train_pos = len(df_train[df_train["label"] == "affiliate"])
+        test_pos = len(df_test[df_test["label"] == "affiliate"])
 
         with open(fname, "a") as f:
             f.write("\nFold " + str(i) + "\n")
@@ -475,36 +461,157 @@ def label_party(name):
     else:
         return "Third"
 
-def pipeline(df_features, df_labels, result_dir):
+def gird_search(df_labelled, df_labelled_holdout, result_dir, log_pred_probability):
+    train_mani = df_labelled.copy()
+    fields_to_remove = ["visit_id", "name", "label", "party", "Unnamed: 0", 'top_level_url']
+    df_feature_train = train_mani.drop(fields_to_remove, axis=1, errors="ignore")
+    train_labels = train_mani.label
+    col_train = df_feature_train.columns
+
+    df_feature_holdout = df_labelled_holdout.drop(fields_to_remove, axis=1, errors="ignore")
+
+    # Align the order of features in df_feature_test with df_feature_train
+    df_feature_holdout = df_feature_holdout[col_train]
+    holdout_labels = df_labelled_holdout.label
+    col_holdout = df_feature_holdout.columns
+
+    df_feature_train = df_feature_train.to_numpy()
+    train_labels = train_labels.to_numpy()
+
+    result_df = df_feature_holdout.copy()
+    df_feature_holdout = df_feature_holdout.to_numpy()
+    holdout_labels = holdout_labels.to_numpy()
+
+    
+    # Define the parameter grid
+    param_grid = {
+        'n_estimators': [100,150,200,250], # number of trees in the forest
+        'max_features': [None,'sqrt'],   # consider every features /square root of features
+        'max_depth': [5, 10, 20],
+        'min_samples_split': [5, 10, 15],  # minimum number of samples that are required to split an internal node.
+        'min_samples_leaf': [1, 2, 4],
+        'bootstrap': [True, False]
+    }
+
+    # Initialize the classifier
+    rf = RandomForestClassifier()
+
+    # Initialize Grid Search with 10-fold cross-validation
+    grid_search = GridSearchCV(estimator=rf, param_grid=param_grid, cv=10, n_jobs=-1, verbose=2)
+
+    # Fit the grid search to the data
+    grid_search.fit(df_feature_train, train_labels)
+
+    # Get the best model
+    best_model = grid_search.best_estimator_
+
+    best_params = best_model.get_params()
+    params_filename = os.path.join(result_dir, "best_model_parameters.txt")
+    with open(params_filename, 'w') as file:
+        for param, value in best_params.items():
+            print(f"{param}: {value}")
+            file.write(f"{param}: {value}\n")   
+
+    # Save the model to disk
+    filename = os.path.join(result_dir, "best_model.sav")
+    pickle.dump(best_model, open(filename, "wb"))
+
+    
+    # Get feature importances
+    feature_importances = pd.DataFrame(
+        best_model.feature_importances_, 
+        index=col_train, 
+        columns=["importance"]
+    ).sort_values("importance", ascending=False)
+    report_feature_importance(feature_importances, result_dir)
+
+
+    # Make predictions on the hold-out set
+    y_pred = best_model.predict(df_feature_holdout)
+    y_pred_proba = best_model.predict_proba(df_feature_holdout)
+    print(best_model.classes_)  # e.g., ['ads' 'affiliate']
+
+
+    result_df["clabel"] = y_pred
+    result_df["clabel_prob"] = y_pred_proba[:, 1]  # assuming binary classification
+    result_df['label'] = holdout_labels
+    # Save to CSV
+    result_df.to_csv(os.path.join(result_dir, "result.csv"), index=False)
+
+    acc = accuracy_score(holdout_labels, y_pred)
+    prec_binary = precision_score(holdout_labels, y_pred, pos_label="affiliate")
+    rec_binary = recall_score(holdout_labels, y_pred, pos_label="affiliate")
+    prec_micro = precision_score(holdout_labels, y_pred, average="micro")
+    rec_micro = recall_score(holdout_labels, y_pred, average="micro")
+    prec_macro = precision_score(holdout_labels, y_pred, average="macro")
+    rec_macro = recall_score(holdout_labels, y_pred, average="macro")
+
+    # Write accuracy score
+    fname = os.path.join(result_dir, "accuracy")
+    with open(fname, "a") as f:
+        f.write("\nAccuracy score: " + str(round(acc * 100, 3)) + "%" + "\n")
+        f.write(
+            "Precision score: binary " + str(round(prec_binary * 100, 3)) + "%" + "\n"
+        )
+        f.write("Recall score: binary " + str(round(rec_binary * 100, 3)) + "%" + "\n")
+        f.write(
+            "Precision score: micro " + str(round(prec_micro * 100, 3)) + "%" + "\n"
+        )
+        f.write("Recall score: micro " + str(round(rec_micro * 100, 3)) + "%" + "\n")
+        f.write(
+            "Precision score: macro " + str(round(prec_macro * 100, 3)) + "%" + "\n"
+        )
+        f.write("Recall score: macro " + str(round(rec_macro * 100, 3)) + "%" + "\n")
+
+    print("Accuracy Score:", acc)
+
+    if log_pred_probability:
+        log_prediction_probability(
+            best_model, df_feature_holdout, col_holdout, df_labelled_holdout, y_pred, result_dir, tag='0'
+        )
+
+
+
+def pipeline(df, df_labels, result_dir):
     if not os.path.exists(result_dir):
         os.mkdir(result_dir)
 
-    df = df_features.merge(df_labels[['name', 'label']], on=["name"])
+    # how to merge label and features based on name 
+    df_labels = df_labels.drop_duplicates(subset=['visit_id'])
+    print("df_labels: ", df_labels.head())
+
+    # drop "top_level_url" column
+    new_df_labels = df_labels.drop('top_level_url', axis=1)
+
+    df = df_features.merge(new_df_labels[['visit_id', 'label', 'name']], on=["visit_id"])
+    # df.to_csv("/home/data/chensun/affi_project/purl/output/affiliate/fullGraph/test_2.csv")
+
+    # only need to drop label_y in phaseA?
+    #df.drop(columns=["label_y"], inplace=True)
+    #df.rename(columns={"label_x": "label"}, inplace=True)
+
+    df.drop(columns=["name_y"], inplace=True)
+    df.rename(columns={"name_x": "name"}, inplace=True)
+    #df.to_csv("/home/data/chensun/affi_project/purl/output/affiliate/fullGraph/test_2.csv")
+
     df = df.drop_duplicates()
     df = df.reset_index(drop=True)
-
-    df['party'] = df['name'].apply(label_party)
-
-    print(df['party'].value_counts())
-
-    df = df[df['party'] == 'Third']
-    # df = df.fillna(0)
+    print(df['label'].value_counts())
     print(len(df))
-    df_labelled = df[df["label"] != "Unknown"]
-    df_unknown = df[df["label"] == "Unknown"]
-    df_positive = df[df["label"] == "Positive"]
-    df_negative = df[df["label"] == "Negative"]
-
+    df_labelled = df
+    df_positive = df[df["label"] == "affiliate"]
+    df_negative = df[df["label"] == "ads"]
+    df_unknown = df[df["label"] == "normal"]
     # find nan values
     print("Nan values")
     print(df.isnull().values.any())
-
-    # remove nan
+   
+    #  remove nan
     df_labelled = df_labelled.dropna()
     df_unknown = df_unknown.dropna()
     df_positive = df_positive.dropna()
     df_negative = df_negative.dropna()
-
+  
     fname = os.path.join(result_dir, "composition")
     with open(fname, "a") as f:
         f.write("Number of samples: " + str(len(df)) + "\n")
@@ -516,158 +623,124 @@ def pipeline(df_features, df_labels, result_dir):
             + "\n"
         )
         f.write(
-            "Positive samples: "
+            "Positive samples (affiliate): "
             + str(len(df_positive))
             + " "
             + get_perc(len(df_positive), len(df))
             + "\n"
         )
         f.write(
-            "Negative samples: "
+            "Negative samples (ads): "
             + str(len(df_negative))
             + " "
             + get_perc(len(df_negative), len(df))
             + "\n"
         )
         f.write("\n")
-        
-		# sample negative labels to match positive labels
-    df_negative = df_negative.sample(n=len(df_positive), random_state=1)
+
+    # sample negative labels to match positive labels
+    # df_negative = df_negative.sample(n=len(df_positive), random_state=1)
+    
+    # sample positive labels to match negative labels
+    df_positive = df_positive.sample(n=len(df_negative), random_state=1)
     df_labelled = pd.concat([df_positive, df_negative])
     vid_list = df_labelled["visit_id"].unique()
-    num_iter = 10
-    num_test_vid = int(len(vid_list) / num_iter)
-    chosen_test_vid = random.sample(list(vid_list), num_test_vid)
-    df_validation = df_labelled[df_labelled["visit_id"].isin(chosen_test_vid)]
-    df_crossval = df_labelled[~df_labelled["visit_id"].isin(chosen_test_vid)]
+    print("vid_list: ", len(vid_list))
 
-    results = classify_crossval(
-        df_labelled, result_dir, sample=False, log_pred_probability=True
-    )
-    report = describe_classif_reports(results, result_dir)
+
+    """
+    [Added] prepare for holdout data set
+    """
+    num_test_vid_holdout = int(int(len(vid_list))*0.8)
+    chosen_test_vid_holdout = random.sample(list(vid_list), num_test_vid_holdout)
+    #vid_list_holdout = chosen_test_vid_holdout["visit_id"].unique()
+    print("vid_list (without holdout): ", len(chosen_test_vid_holdout))
+    df_labelled_crossval = df_labelled[df_labelled["visit_id"].isin(chosen_test_vid_holdout)]
+    df_labelled_holdout = df_labelled[~df_labelled["visit_id"].isin(chosen_test_vid_holdout)]
+    
+    gird_search(df_labelled, df_labelled_holdout, result_dir, log_pred_probability=True)
+
+    #results = classify_crossval(
+    #    df_labelled_crossval, result_dir, sample=False, log_pred_probability=True
+    #)
+    #report = describe_classif_reports(results, result_dir)
     # print(report)
     # print_stats(report, result_dir)
 
-    valid_result_dir = os.path.join(result_dir, "validation")
-    os.mkdir(valid_result_dir)
-    results = classify_validation(df_crossval, df_validation, valid_result_dir, sample=False, log_pred_probability=True)
-    report = describe_classif_reports(results, valid_result_dir)
+    #valid_result_dir = os.path.join(result_dir, "validation")
+    #os.mkdir(valid_result_dir)
+    #results = classify_validation(df_crossval, df_validation, valid_result_dir, sample=False, log_pred_probability=True)
+    #report = describe_classif_reports(results, valid_result_dir)
 
     # Unknown labels
-    unknown_result_dir = os.path.join(result_dir, "unlabelled")
-    os.mkdir(unknown_result_dir)
-    classify_unknown(df_labelled, df_unknown, unknown_result_dir)
-
-
-def change_label_setter(setter_label):
-    if setter_label == True:
-        return "Positive"
-    if setter_label == False:
-        return "Negative"
-    return "Unknown"
-
-
-def change_label_discrepancy(row):
-    if (row["setter_label"] == False) & (row["declared_label"] == 3):
-        print("here")
-        return "Unknown"
-    return row["label"]
-
-
-def change_label_oldcookiepedia(row):
-    if row["category"] == "Targeting/Advertising":
-        return "Positive"
-    elif row["setter_label"] == "False":
-        return "Negative"
-
-    return "Unknown"
-
-
-def change_label_ga(row):
-    exclude_list = ["_ga", "_gid", "_gat"]
-    if row["name"] in exclude_list:
-        # if row['label'] != 'Positive':
-        # 	return 'Positive'
-        return "GA"
-    return row["label"]
-
-
-def fix_conflict(row):
-    try:
-        if row["clabel"] != "N/A":
-            return row["clabel"]
-    except:
-        return row["label"]
-    return row["label"]
-
-
-def resolve_labels(df):
-    labels = df["label"].unique()
-    if len(labels) > 1:
-        if "Positive" in labels:
-            data = (df["visit_id"].iloc[0], df["name"].iloc[0], "Positive")
-        elif "Negative" in labels:
-            data = (df["visit_id"].iloc[0], df["name"].iloc[0], "Negative")
-    else:
-        data = (df["visit_id"].iloc[0], df["name"].iloc[0], df["label"].iloc[0])
-    return data
-
-
-def check_labels(df):
-    labels = df["label"].unique()
-    if len(labels) > 1:
-        print("error!")
-
-
-def change_label(row, checks):
-    split_name = row["name"].split("|$$|")[0]
-    if (split_name in checks) and (row["label"] == "Negative"):
-        return "Positive"
-    return row["label"]
-
+    # unknown_result_dir = os.path.join(result_dir, "unlabelled")
+    # os.mkdir(unknown_result_dir)
+    # classify_unknown(df_labelled, df_unknown, unknown_result_dir)
+   
 
 if __name__ == "__main__":
-    FEATURE_FOLDER = "../../"
-    LABEL_FOLDER = "../../"
-    RESULT_DIR = "results/20k-run-6-19-23"
-
-    # df_features = pd.DataFrame()
-    # df_features_dflow = pd.DataFrame()
-    # df_labels = pd.DataFrame()
-
-    # fnames = os.listdir(FEATURE_FOLDER)
-    # for fname in fnames:
-    # 	fpath = os.path.join(FEATURE_FOLDER, fname)
-    # 	df = pd.read_csv(fpath)
-    # 	df_features = df_features.append(df)
-
-    # df_features = df_features.drop_duplicates()
-
-    # fnames = os.listdir(LABEL_FOLDER)
-    # for fname in fnames:
-    # 	fpath = os.path.join(LABEL_FOLDER, fname)
-    # 	df = pd.read_csv(fpath)
-    # 	df_labels = df_labels.append(df)
-
-    df_features = []
-
-    for i in tqdm(range(0, 20000, 1000)):
-        df_features.append(pd.read_csv(f"../features_{i}.csv"))
     
-    df_features = pd.concat(df_features)
+    # fullGraph classification
+    normal_fullGraph_folder = "../../output/normal/fullGraph"
+    ads_fullGraph_folder = "../../output/ads/fullGraph"
+    affiliate_fullGraph_folder = "../../output/affiliate/fullGraph"
+    RESULT_DIR = "../../output/results/aff_ads_graph_level_phaseA_2.1"  # change this
+    
+    # get features
+    df_features = pd.DataFrame()
+    """
+    for filename in os.listdir(normal_fullGraph_folder):
+        if filename.startswith("features_median") and filename.endswith(".csv"):
+            # Construct the full file path
+            file_path = os.path.join(normal_fullGraph_folder, filename)
+            df = pd.read_csv(file_path, on_bad_lines='skip')
+            print(len(df))
+            df_features = df_features.append(df)
+    """
+    for filename in os.listdir(ads_fullGraph_folder):
+        if filename.startswith("features_phase1") and filename.endswith(".csv"): # change this
+            # Construct the full file path
+            file_path = os.path.join(ads_fullGraph_folder, filename)
+            df = pd.read_csv(file_path, on_bad_lines='skip')
+            print(len(df))
+            df_features = df_features.append(df)
 
-    # df_labels = []
+    for filename in os.listdir(affiliate_fullGraph_folder):
+        if filename.startswith("features_phase1") and filename.endswith(".csv"): # change this
+            # Construct the full file path
+            file_path = os.path.join(affiliate_fullGraph_folder, filename)
+            df = pd.read_csv(file_path, on_bad_lines='skip')
+            print(len(df))
+            df_features = df_features.append(df)
+    print("len of features: ", len(df_features))
 
-    # for i in tqdm(range(0, 20000, 1000)):
-    #     df_labels.append(pd.read_csv(f"../labels_new_{i}.csv", on_bad_lines='skip', usecols=['name', 'label']))
+    # get labels
+    df_labels = pd.DataFrame()
+    """
+    for filename in os.listdir(normal_fullGraph_folder):
+        if filename.startswith("labels_") and filename.endswith(".csv"):
+            # Construct the full file path
+            file_path = os.path.join(normal_fullGraph_folder, filename)
+            df = pd.read_csv(file_path, on_bad_lines='skip')
+            print(len(df))
+            df_labels = df_labels.append(df)
+    """
+    for filename in os.listdir(ads_fullGraph_folder):
+        if filename.startswith("labels_") and filename.endswith(".csv"):
+            # Construct the full file path
+            file_path = os.path.join(ads_fullGraph_folder, filename)
+            df = pd.read_csv(file_path, on_bad_lines='skip')
+            print(len(df))
+            df_labels = df_labels.append(df)
 
-    # df_labels = pd.concat(df_labels)
-
-    # df_labels = df_labels[['name', 'label']].drop_duplicates()
-
-    df_labels = pd.read_parquet("../labels_unique.parquet")
-
-    # df_features = pd.read_csv("../features_0.csv")
-    # df_labels = pd.read_csv("../labels_0.csv", on_bad_lines='skip')
+    for filename in os.listdir(affiliate_fullGraph_folder):
+        if filename.startswith("labels_") and filename.endswith(".csv"):
+            # Construct the full file path
+            file_path = os.path.join(affiliate_fullGraph_folder, filename)
+            df = pd.read_csv(file_path, on_bad_lines='skip')
+            print(len(df))
+            df_labels = df_labels.append(df)
+    print("len of labels: ", len(df_labels))
 
     pipeline(df_features, df_labels, RESULT_DIR)
+    

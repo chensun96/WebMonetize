@@ -99,7 +99,7 @@ def get_attr_action(symbol):
 		return "attr_" + result.group(1)
 	except Exception as e:
 		return ""
-
+'''
 def find_parent_elem(src_elements, df_element):
 	
 	"""Function to find parent elements."""
@@ -108,7 +108,26 @@ def find_parent_elem(src_elements, df_element):
 	df_element['new_attr'] = df_element['attr'].apply(get_tag, key="openwpm")
 	result = src_elements.merge(df_element[['new_attr', 'name']], on='new_attr', how='left')
 	return result
+'''
 
+def find_parent_elem(src_elements, df_element):
+	
+	"""Function to find parent elements."""
+	
+	src_elements['new_attr'] = src_elements['attributes'].apply(get_tag, key="fullopenwpm")
+	df_element['new_attr'] = df_element['attr'].apply(get_tag, key="openwpm")
+	try:
+		# Check data types
+		if src_elements['new_attr'].dtype == 'float64' or df_element['new_attr'].dtype == 'float64':
+			raise ValueError("Invalid data type for new_attr. Float64 detected.")
+
+		result = src_elements.merge(df_element[['new_attr', 'name']], on='new_attr', how='left')
+	except ValueError as e:
+		print(f"Error occurred: {e}")
+		# Handle the error or return None or an empty DataFrame
+		return pd.DataFrame()
+	# Print the data types of new_attr in both DataFrames
+	return result
 
 def find_modified_elem(df_element, df_javascript):
 	
@@ -119,7 +138,7 @@ def find_modified_elem(df_element, df_javascript):
 	result = df_javascript.merge(df_element[['new_attr', 'name']], on='new_attr', how='left')
 	return result
 
-
+'''
 def build_html_components(df_javascript):
 
 	df_js_nodes = pd.DataFrame()
@@ -206,6 +225,100 @@ def build_html_components(df_javascript):
 		return df_js_nodes, df_js_edges
 
 	return df_js_nodes, df_js_edges
+'''
+
+def build_html_components(df_javascript):
+
+	df_js_nodes = pd.DataFrame()
+	df_js_edges = pd.DataFrame()
+
+	try:
+		#Find all created elements
+		created_elements = df_javascript[df_javascript['symbol'] == 'window.document.createElement'].copy()
+		created_elements['name'] = created_elements.index.to_series().apply(lambda x: "Element_" + str(x))
+		created_elements['type'] = 'Element'
+
+		created_elements['subtype_list'] = created_elements['arguments'].apply(convert_subtype)
+		#created_elements['attr'] = created_elements[['attributes', 'subtype_list']].apply(
+		#				lambda x: convert_attr(*x), axis=1)
+		created_elements['attr'] = created_elements.apply(convert_attr, axis=1)
+		created_elements['action'] = 'create'
+
+		# #Get evals from the createElement calls
+		# eval_elements = created_elements[created_elements['script_loc_eval'] != ""].copy()
+		# if len(eval_elements) > 0:
+		# 	eval_elements['eval_name'] = eval_elements[['script_url', 'script_loc_eval']].apply(
+		# 					lambda x: get_eval_name(*x), axis=1)
+		# 	eval_elements['eval_type'] = "Script"
+		# 	eval_elements['eval_attr'] = "eval"
+		# 	eval_elements['eval_action'] = "eval"
+
+		# 	#Eval nodes and edges (to be inserted)
+		# 	df_eval_nodes = eval_elements[['visit_id', 'eval_name', 'eval_type', 'eval_attr']].drop_duplicates()
+		# 	df_eval_nodes = df_eval_nodes.rename(columns={'eval_name': 'name', 'eval_type': 'type',
+		# 		'eval_attr': 'attr'})
+		# 	df_script_eval_edges = eval_elements[['visit_id', 'script_url', 'eval_name', 'eval_action', 'time_stamp']].drop_duplicates()
+		# 	df_script_eval_edges = df_script_eval_edges.rename(
+		# 					columns={'eval_action' : 'action', 'script_url' : 'src', 'eval_name' : 'dst'})
+
+		# 	#Created element edges (with eval parents)
+		# 	df_eval_element_edges = eval_elements[['visit_id', 'eval_name', 'name', 'action', 'time_stamp']]
+		# 	df_eval_element_edges = df_eval_element_edges.rename(columns={'eval_name': 'src', 'name': 'dst'})
+		# else:
+		# 	df_eval_nodes = pd.DataFrame()
+		# 	df_script_eval_edges = pd.DataFrame()
+		# 	df_eval_element_edges = pd.DataFrame()
+
+		# #Created Element nodes and edges (to be inserted)
+		# created_non_eval_elements = created_elements[created_elements['script_loc_eval'] == ""].copy()
+		# df_script_created_edges = created_non_eval_elements[['visit_id', 'script_url', 'name', 'action', 'time_stamp']]
+		# df_script_created_edges = df_script_created_edges.rename(columns={'script_url' : 'src', 'name' : 'dst'})
+
+		#Created Element nodes and edges (to be inserted)
+		df_element_nodes = created_elements[['visit_id', 'name', 'top_level_url', 'type', 'attr','is_in_phase1']]
+		df_create_edges = created_elements[['visit_id', 'script_url', 'name', 'top_level_url', 'action', 'time_stamp','is_in_phase1']]
+		df_create_edges = df_create_edges.rename(columns={'script_url' : 'src', 'name' : 'dst'})
+
+		src_elements = df_javascript[(df_javascript['symbol'].str.contains("Element.src")) & (df_javascript['operation'].str.contains('set'))].copy()
+		src_elements['type'] = "Request"
+		src_elements = find_parent_elem(src_elements, df_element_nodes)
+
+                # Handle "Error occurred: Invalid data type for new_attr. Float64 detected" error
+		if src_elements.empty:
+			return df_js_nodes, df_js_edges
+			
+		src_elements['action'] = "setsrc"
+
+		#Src Element nodes and edges (to be inserted)
+		df_src_nodes = src_elements[['visit_id', 'value', 'top_level_url', 'type', 'attributes','is_in_phase1']].copy()
+		df_src_nodes = df_src_nodes.rename(columns={'value': 'name', 'attributes': 'attr'})
+		df_src_nodes = df_src_nodes.dropna(subset=["name"])
+
+		#df_src_nodes = df_src_nodes['attr'].groupby(['visit_id', 'name', 'type']).apply(list)
+		#df_src_nodes['attr'] = df_src_nodes['attr'].apply(lambda x: json.dumps(x))
+
+		df_src_edges = src_elements[['visit_id', 'name', 'value', 'top_level_url', 'action', 'time_stamp', 'is_in_phase1']]
+		df_src_edges = df_src_edges.dropna(subset=["name"])
+		df_src_edges = df_src_edges.rename(columns={'name': 'src', 'value': 'dst'})
+
+		#df_js_nodes = pd.concat([df_element_nodes, df_src_nodes, df_eval_nodes]).drop_duplicates()
+		#df_js_edges = pd.concat([ df_script_created_edges, df_script_eval_edges, df_eval_element_edges, df_src_edges])
+		df_js_nodes = pd.concat([df_element_nodes, df_src_nodes]).drop_duplicates()
+		df_js_nodes = df_js_nodes.drop(columns=['new_attr'])
+		df_js_edges = pd.concat([df_create_edges, df_src_edges])
+
+		df_js_edges['reqattr'] = pd.NA
+		df_js_edges['respattr'] = pd.NA
+		df_js_edges['response_status'] = pd.NA
+		df_js_edges['attr'] = pd.NA
+
+	except Exception as e:
+		print("Error in build_html_components:", e)
+		traceback.print_exc()
+		return df_js_nodes, df_js_edges
+
+	return df_js_nodes, df_js_edges
+
 
 def build_html_components_bk(df_javascript, tag_dict):
 

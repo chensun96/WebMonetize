@@ -94,7 +94,7 @@ def get_link_decorations(url, top_level_url):
         print(url)
         raise e
 
-
+    '''
 def build_decoration_components(df_request_nodes):
     df_decoration_nodes = pd.DataFrame()
     df_decoration_edges = pd.DataFrame()
@@ -147,6 +147,76 @@ def build_decoration_components(df_request_nodes):
 
     df_decoration_edges = df_decoration_edges[
         ["visit_id", "name_x", "name_y", "top_level_url", "type_x", "attr_x"]
+    ]
+
+    df_decoration_edges.rename(
+        columns={
+            "name_x": "dst",
+            "name_y": "src",
+            "top_level_url_x": "top_level_url",
+            "type_x": "type",
+            "attr_x": "attr",
+        },
+        inplace=True,
+    )
+
+    df_decoration_edges.drop(columns=["type"], inplace=True)
+
+    df_decoration_nodes.drop(columns=["req_name"], inplace=True)
+
+    return df_decoration_nodes, df_decoration_edges
+    '''
+
+def build_decoration_components(df_request_nodes):
+    df_decoration_nodes = pd.DataFrame()
+    df_decoration_edges = pd.DataFrame()
+
+    df_decoration_nodes = df_request_nodes[["visit_id", "name", "top_level_url", "is_in_phase1"]]
+    
+    df_decoration_nodes["decoration"] = df_decoration_nodes.apply(
+        lambda x: get_link_decorations(x["name"], x["top_level_url"]), axis=1
+    )
+    df_decoration_nodes["decoration"] = df_decoration_nodes["decoration"].apply(
+        lambda x: [] if x is None else x
+    )
+
+    df_decoration_nodes = df_decoration_nodes.explode("decoration")
+    df_decoration_nodes.dropna(inplace=True)
+    # print(df_decoration_nodes.head())
+
+    df_decoration_nodes["type"] = "Decoration"
+
+    df_decoration_nodes["attr"] = df_decoration_nodes["decoration"].apply(
+        lambda x: json.dumps({"value": list(x.values())[0]})
+    )
+
+    df_decoration_nodes.rename(columns={"name": "req_name"}, inplace=True)
+
+    df_decoration_nodes["name"] = df_decoration_nodes["decoration"].apply(
+        lambda x: list(x.keys())[0]
+    )
+
+    df_decoration_nodes.drop(columns=["decoration"], inplace=True)
+
+    df_decoration_nodes = df_decoration_nodes[
+        ["visit_id", "name", "req_name", "top_level_url", "type", "attr", "is_in_phase1"]
+    ]
+    df_decoration_nodes.drop_duplicates(inplace=True)
+    
+    df_decoration_edges = df_decoration_nodes.copy()
+
+    df_decoration_edges = pd.merge(
+        df_decoration_edges,
+        df_request_nodes,
+        left_on=["visit_id", "req_name", "top_level_url", "is_in_phase1"],
+        right_on=["visit_id", "name", "top_level_url", "is_in_phase1"],
+        how="left",
+    )
+    # print(df_decoration_edges.columns)
+    print("Decoration edges: ", df_decoration_edges.shape)
+
+    df_decoration_edges = df_decoration_edges[
+        ["visit_id", "name_x", "name_y", "top_level_url", "type_x", "attr_x", "is_in_phase1"]
     ]
 
     df_decoration_edges.rename(

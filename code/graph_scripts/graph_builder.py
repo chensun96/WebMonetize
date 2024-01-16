@@ -79,6 +79,7 @@ def build_graph(pdf):
         as_index=False).agg({'type': lambda x: list(x), \
         'attr': lambda x: list(x), 'domain' : lambda x: list(x)[0], \
         'top_level_domain' : lambda x: list(x)[0]})
+
     df_nodes['type'] = df_nodes['type'].apply(modify_type)
     df_nodes['attr'] = df_nodes['attr'].apply(modify_attr)
     G = nx.from_pandas_edgelist(df_edges, source='src', target='dst', edge_attr=True, create_using=nx.DiGraph())

@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Graph Visualization</title>
+    <script src="https://d3js.org/d3.v6.min.js"></script>
+</head>
+<body>
+    <svg width="1500" height="900"></svg>
+
+<script>
+    // Load the JSON data
+    d3.json('graph_redirect.json').then(function(graph) {
+
+        // Add a check here to ensure all links have corresponding nodes
+        graph.links = graph.links.filter(link => {
+            const sourceExists = graph.nodes.some(node => node.id === link.source);
+            const targetExists = graph.nodes.some(node => node.id === link.target);
+            if (!sourceExists || !targetExists) {
+                console.warn(`Link skipped due to missing node:`, link);
+                return false; // Exclude this link from the links array
+            }
+            return true;
+        });
+
+        var svg = d3.select("svg"),
+            width = +svg.attr("width"),
+            height = +svg.attr("height"),
+            g = svg.append("g");  // This 'g' element will hold all the graph elements
+
+        svg.call(d3.zoom().on("zoom", (event) => {
+        g.attr("transform", event.transform);  // Apply transformations to 'g' not 'svg'
+        }));
+
+        var nodes = graph.nodes,
+        links = graph.links;
+
+        // Set up the simulation
+        var simulation = d3.forceSimulation(graph.nodes)
+            .force("link", d3.forceLink(graph.links).id(d => d.id))
+            .force("charge", d3.forceManyBody())
+            .force("center", d3.forceCenter(width / 2, height / 2));
+
+        // Draw lines for the links
+        var link = g.append("g")
+            .selectAll("line")
+            .data(graph.links)
+            .enter().append("line")
+            .attr("stroke-width", 2)
+            .attr("stroke-width", d => {
+                // Access the source and target nodes using d.source and d.target
+                const sourceNode = graph.nodes.find(node => node.id === d.source.id);
+                const targetNode = graph.nodes.find(node => node.id === d.target.id);
+
+                // Check if both source and target nodes are of type 'Document'
+                if (sourceNode.type === "Document" && targetNode.type === "Document") {
+                    return 4; // Thicker line for links between two 'Document' type nodes
+                }
+                return 2; // Default thickness for other links
+            })
+            .attr("stroke", d => {
+                // Access the source and target nodes using d.source and d.target
+                const sourceNode = graph.nodes.find(node => node.id === d.source.id);
+                const targetNode = graph.nodes.find(node => node.id === d.target.id);
+
+                // Check if both source and target nodes are of type 'Document'
+                if (sourceNode.type === "Document" && targetNode.type === "Document") {
+                    return "#636363"; // Thicker line for links between two 'Document' type nodes
+                }
+                return "#D3D3D3"; // Default thickness for other links
+            });
+
+
+        // Define a color scale with a domain of node types and a range of desired colors
+        const colorScale = d3.scaleOrdinal()
+           .domain(["Document", "Storage", "Element", "Request", "Script", "Decoration"])
+            .range(["black", "#e23647", "#f2ce3e", "brown", "#4991d8", "#d5ead8"]); // Colors chosen for example
+        // Request: brown  | Storage: red | Element:  yellow  | Decoration: light green | script: blue
+
+        const sizeForTrue = 13;  // Size for nodes where node type is document/request/script
+        const sizeForFalse = 5
+
+        // Draw circles for the nodes
+        var node = g.append("g")
+            .selectAll("circle")
+            .data(graph.nodes)
+            .enter().append("circle")
+            .attr("r", d => (d.type === "Document" || d.type === "Request" || d.type === "Script") ? sizeForTrue : sizeForFalse)
+            .attr("fill", d => colorScale(d.type))
+            .attr("stroke", "gray") // This sets the border color to gray
+            .attr("stroke-width", 1.5) // This sets the border width; adjust as needed
+            .call(d3.drag()
+                .on("start", dragstarted)
+                .on("drag", dragged)
+                .on("end", dragended));
+
+
+        // Add labels
+        var labels = g.append("g")
+          .attr("class", "labels")
+          .selectAll("text")
+          .data(nodes)
+          .enter()
+          .append("text")
+          .text(d => {
+            if (d.type === "Document") {
+              return d.id;
+            }
+            // Check if the node type is 'Storage' and attr is either 'HTTPCookie' or 'Cookie'
+            else if (d.type === "Storage" && (d.attr === "HTTPCookie" || d.attr === "Cookie")) {
+              return d.type; // or whatever property you want to display as text
+            }
+            else if (d.type === "Request" || d.type === "Script") {
+              const attrObj = JSON.parse(d.attr);
+               // Concatenate the content_policy_type and domain
+               return attrObj.content_policy_type + ", " + d.domain; // label (1) type of the request (2) domain the the request
+            }
+            return ""; // Return an empty string for nodes that don't match the criteria
+          })
+          .attr("x", d => d.x)
+          .attr("y", d => d.y)
+          .attr("dx", 12) // Offset from the node center, adjust as needed
+          .attr("dy", ".35em") // Center the text vertically relative to the node
+          .style("font-size", d => d.type === "Document" ? "20px" : "10px") // Use larger font size for Document nodes
+          .style("font-weight", d => d.type === "Document" ? "bold" : "normal") // Bold for Document nodes
+          .style("pointer-events", "none"); // Prevent the labels from interfering with drag behavior
+
+        simulation.on("tick", () => {
+            // Update link positions
+            link.attr("x1", d => d.source.x)
+                .attr("y1", d => d.source.y)
+                .attr("x2", d => d.target.x)
+                .attr("y2", d => d.target.y);
+
+            // Update node positions
+            node.attr("cx", d => d.x)
+                .attr("cy", d => d.y);
+
+            // Update label positions
+            labels.attr("x", d => d.x)
+                  .attr("y", d => d.y);
+        });
+
+        // Drag functions
+        function dragstarted(event, d) {
+            if (!event.active) simulation.alphaTarget(0.3).restart();
+            d.fx = d.x;
+            d.fy = d.y;
+        }
+
+        function dragged(event, d) {
+            d.fx = event.x;
+            d.fy = event.y;
+        // Update label positions during the drag
+            d3.select(this).select("text")
+                .attr("x", d.fx)
+                .attr("y", d.fy);
+        }
+
+        function dragended(event, d) {
+            if (!event.active) simulation.alphaTarget(0);
+            d.fx = null;
+            d.fy = null;
+        }
+    });
+</script>
+</body>
+</html>

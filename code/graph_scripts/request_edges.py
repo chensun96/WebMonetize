@@ -44,7 +44,7 @@ def process_attr(respattr):
     except:
         return None
 
-
+    '''
 def process_redirects(df):
     header_list = df["respattr1"].append(df.iloc[-1:]["headers"], ignore_index=True)
     status_list = df["response_status_x"].append(
@@ -85,7 +85,51 @@ def process_redirects(df):
     edges["response_status"] = status_list
     return edges
 
+    '''
 
+def process_redirects(df):
+    header_list = df["respattr1"].append(df.iloc[-1:]["headers"], ignore_index=True)
+    status_list = df["response_status_x"].append(
+        df.iloc[-1:]["response_status_y"], ignore_index=True
+    )
+    edges = df[
+        [
+            "visit_id",
+            "old_request_url",
+            "new_request_url",
+            "top_level_url_x",
+            "reqattr2",
+            "time_stamp_x",
+            "is_in_phase1"
+        ]
+    ]
+    edges = edges.rename(
+        columns={
+            "old_request_url": "src",
+            "time_stamp_x": "time_stamp",
+            "new_request_url": "dst",
+            "reqattr2": "reqattr",
+            "top_level_url_x": "top_level_url",
+        }
+    )
+    first_row = df.iloc[0]
+    data = []
+    new_entry = {
+        "visit_id": first_row["visit_id"],
+        "src": first_row["top_level_url_x"],
+        "dst": first_row["old_request_url"],
+        "top_level_url": first_row["top_level_url_x"],
+        "reqattr": first_row["reqattr1"],
+        "time_stamp": first_row["time_stamp_x"],
+        "is_in_phase1": first_row["is_in_phase1"],
+    }
+    data.insert(0, new_entry)
+    edges = pd.concat([pd.DataFrame(data), edges], ignore_index=True)
+    edges["respattr"] = header_list
+    edges["response_status"] = status_list
+    return edges
+
+    '''
 def get_redirect_edges(df_requests, df_redirects, df_responses):
     df_reqheaders = df_requests[
         ["visit_id", "request_id", "url", "headers", "top_level_url", "time_stamp"]
@@ -152,7 +196,77 @@ def get_redirect_edges(df_requests, df_redirects, df_responses):
     completed_ids = x3["key_x"].unique().tolist()
 
     return df_redirect_edges, completed_ids
+    '''
 
+def get_redirect_edges(df_requests, df_redirects, df_responses):
+    df_reqheaders = df_requests[
+        ["visit_id", "request_id", "url", "headers", "top_level_url", "time_stamp", "is_in_phase1"]
+    ]
+    df_red = df_redirects[
+        [
+            "visit_id",
+            "old_request_id",
+            "old_request_url",
+            "new_request_url",
+            "headers",
+            "response_status",
+            "is_in_phase1"
+        ]
+    ]
+
+    x1 = pd.merge(
+        df_red,
+        df_reqheaders,
+        left_on=["visit_id", "old_request_id", "old_request_url", "is_in_phase1"],
+        right_on=["visit_id", "request_id", "url", "is_in_phase1"],
+    )
+    x2 = pd.merge(
+        x1,
+        df_requests,
+        left_on=["visit_id", "old_request_id", "new_request_url", "is_in_phase1"],
+        right_on=["visit_id", "request_id", "url", "is_in_phase1"],
+    )
+    x2 = x2.rename(
+        columns={
+            "headers_x": "respattr1",
+            "headers_y": "reqattr1",
+            "headers": "reqattr2",
+        }
+    )
+    x3 = pd.merge(
+        x2,
+        df_responses,
+        left_on=["visit_id", "old_request_id", "new_request_url", "is_in_phase1"],
+        right_on=["visit_id", "request_id", "url", "is_in_phase1"],
+        how="outer",
+    )
+
+    df_redirect_edges = (
+        x3.groupby(["visit_id", "old_request_id"], as_index=False)
+        .apply(process_redirects)
+        .reset_index()
+    )
+    df_redirect_edges = df_redirect_edges[
+        [
+            "visit_id",
+            "src",
+            "dst",
+            "top_level_url",
+            "reqattr",
+            "respattr",
+            "response_status",
+            "time_stamp",
+            "is_in_phase1",
+        ]
+    ]
+    df_redirect_edges["content_hash"] = pd.NA
+    df_redirect_edges["post_body"] = pd.NA
+    df_redirect_edges["post_body_raw"] = pd.NA
+
+    completed_ids = x3["key_x"].unique().tolist()
+    # df_redirect_edges.to_csv('/home/ubuntu/df_redirect_edges.csv', index=False)
+    # print("completed_ids: ", completed_ids)
+    return df_redirect_edges, completed_ids
 
 def process_call_stack(row):
     """Function to process call stack information."""
@@ -242,7 +356,7 @@ def process_call_stack(row):
     """
     return edge_data
 
-
+    '''
 def get_cs_edges(df_requests, df_responses, call_stacks):
     """DEBUG - TO REMOVE
     node = "https://kraken.rambler.ru/cnt/"
@@ -304,8 +418,85 @@ def get_cs_edges(df_requests, df_responses, call_stacks):
     completed_ids = df_merge["key"].unique().tolist()
 
     return df_cs_edges, completed_ids
+    '''
 
+def get_cs_edges(df_requests, df_responses, call_stacks):
+    """DEBUG - TO REMOVE
+    node = "https://kraken.rambler.ru/cnt/"
+    print("----Hello----")
+    print(df_requests[df_requests.url==node])
+    print(df_responses[df_responses.url==node])
+    print("----Hello----")
+    """
+    try:
+        if call_stacks.empty:
+            raise ValueError("======== callstacks table is empty =========")
 
+        else:
+            df_merge = pd.merge(
+                df_requests, df_responses, on=["visit_id", "request_id"], how="inner"
+            )
+
+            call_stack_nodup = (
+                call_stacks[["visit_id", "request_id", "call_stack", "is_in_phase1"]].drop_duplicates().copy()
+            )
+            df_merge = pd.merge(
+                df_merge, call_stack_nodup, on=["visit_id", "request_id"], how="inner"
+            )
+            df_merge = df_merge[
+                [
+                    "visit_id",
+                    "url_x",
+                    "top_level_url",
+                    "headers_x",
+                    "headers_y",
+                    "time_stamp_x",
+                    "response_status",
+                    "post_body",
+                    "post_body_raw",
+                    "content_hash",
+                    "call_stack",
+                    "key_x",
+                    "is_in_phase1",
+                ]
+            ]
+            df_merge = df_merge.rename(
+                columns={
+                    "url_x": "name",
+                    "headers_x": "reqattr",
+                    "headers_y": "respattr",
+                    "time_stamp_x": "time_stamp",
+                    "key_x": "key",
+                }
+            )
+            # df_merge.to_csv('/home/ubuntu/df_merge.csv', index=False)
+            df_merge["cs_edges"] = df_merge.apply(process_call_stack, axis=1)
+            df = df_merge[["top_level_url", "cs_edges", "is_in_phase1"]]
+            df = df.explode("cs_edges").dropna()
+            df["src"] = df["cs_edges"].apply(lambda x: x[0])
+            df["dst"] = df["cs_edges"].apply(lambda x: x[1])
+            df["reqattr"] = df["cs_edges"].apply(lambda x: x[2])
+            df["respattr"] = df["cs_edges"].apply(lambda x: x[3])
+            df["response_status"] = df["cs_edges"].apply(lambda x: x[4])
+            df["time_stamp"] = df["cs_edges"].apply(lambda x: x[5])
+            df["visit_id"] = df["cs_edges"].apply(lambda x: x[6])
+            df["content_hash"] = df["cs_edges"].apply(lambda x: x[7])
+            df["post_body"] = df["cs_edges"].apply(lambda x: x[8])
+            df["post_body_raw"] = df["cs_edges"].apply(lambda x: x[9])
+            df_cs_edges = df.drop(columns=["cs_edges"]).reset_index()
+            del df_cs_edges["index"]
+            # df_cs_edges.to_csv('/home/ubuntu/df_cd_edges.csv', index=False)
+
+            completed_ids = df_merge["key"].unique().tolist()
+
+    except ValueError as e:
+        print(e)  # Optionally log the exception message
+        df_cs_edges = pd.DataFrame()  # Create an empty DataFrame
+        completed_ids = []  # Create an empty list for completed_ids
+
+    return df_cs_edges, completed_ids
+
+    '''
 def get_normal_edges(df_requests, df_responses, completed_ids):
     """Function to build edges that are not redirect edges."""
     df_remaining = df_requests[~df_requests["key"].isin(completed_ids)]
@@ -317,7 +508,7 @@ def get_normal_edges(df_requests, df_responses, completed_ids):
             "url_x",
             "headers_x",
             "headers_y",
-            "response_status",
+            response_status",
             "post_body",
             "post_body_raw",
             "time_stamp_x",
@@ -337,8 +528,42 @@ def get_normal_edges(df_requests, df_responses, completed_ids):
     df_normal_edges["top_level_url"] = df_normal_edges["src"]
 
     return df_normal_edges
+    '''
+def get_normal_edges(df_requests, df_responses, completed_ids):
+    """Function to build edges that are not redirect edges."""
+    df_remaining = df_requests[~df_requests["key"].isin(completed_ids)]
+    df_remaining = pd.merge(df_remaining, df_responses, on=["key"])
+    df_normal_edges = df_remaining[
+        [
+            "visit_id_x",
+            "top_level_url",
+            "url_x",
+            "headers_x",
+            "headers_y",
+            "response_status",
+            "post_body",
+            "post_body_raw",
+            "time_stamp_x",
+            "content_hash",
+            "is_in_phase1_y",
+        ]
+    ]
+    df_normal_edges = df_normal_edges.rename(
+        columns={
+            "visit_id_x": "visit_id",
+            "top_level_url": "src",
+            "url_x": "dst",
+            "headers_x": "reqattr",
+            "headers_y": "respattr",
+            "time_stamp_x": "time_stamp",
+            "is_in_phase1_y": "is_in_phase1",
+        }
+    )
+    df_normal_edges["top_level_url"] = df_normal_edges["src"]
+    # df_normal_edges.to_csv('/home/ubuntu/df_normal.csv', index=False)
+    return df_normal_edges
 
-
+    '''
 def build_request_components(df_requests, df_responses, df_redirects, call_stacks):
     df_request_nodes = pd.DataFrame()
     df_http_edges = pd.DataFrame()
@@ -390,15 +615,96 @@ def build_request_components(df_requests, df_responses, df_redirects, call_stack
         # Other edges. To be inserted
         completed_ids = set(completed_ids_red + completed_ids_cs)
         df_normal_edges = get_normal_edges(df_requests, df_responses, completed_ids)
-
+        df_normal_edges.to_csv('/home/ubuntu/df_normal_edges.csv', index=False)
+        
         df_http_edges = pd.concat(
             [df_redirect_edges, df_cs_edges, df_normal_edges]
         ).reset_index()
         del df_http_edges["index"]
         df_http_edges["action"] = pd.NA
+        df_http_edges.to_csv('/home/ubuntu/df_http_edges.csv', index=False)
 
     except Exception as e:
         print("Error in request_components:", e)
         traceback.print_exc()
 
     return df_request_nodes, df_http_edges
+
+    '''
+def build_request_components(df_requests, df_responses, df_redirects, call_stacks):
+    df_request_nodes = pd.DataFrame()
+    df_http_edges = pd.DataFrame()
+
+    try:
+        """Function to build HTTP nodes and edges from the OpenWPM HTTP data."""
+        df_requests["key"] = df_requests[["visit_id", "request_id"]].apply(
+            lambda x: get_key(*x), axis=1
+        )
+        df_responses["key"] = df_responses[["visit_id", "request_id"]].apply(
+            lambda x: get_key(*x), axis=1
+        )
+
+        df_requests["type"] = "Request"
+        df_requests["attr"] = df_requests[["resource_type", "top_level_url"]].apply(
+            lambda x: get_attr(*x), axis=1
+        )
+        # df_requests.to_csv('/home/ubuntu/df_requests_new.csv', index=False)
+
+        # Request nodes. To be inserted
+        df_request_nodes = (
+            df_requests[["visit_id", "url", "type", "top_level_url", "attr", "is_in_phase1"]]
+            .drop_duplicates()
+            .copy()
+        )
+        df_request_nodes["type"] = df_requests[["type", "attr"]].apply(
+            lambda x: convert_type(*x), axis=1
+        )
+        df_request_nodes = df_request_nodes.rename(columns={"url": "name"})
+
+        # df_request_nodes.to_csv('/home/ubuntu/df_request_nodes.csv', index=False)
+
+        # Redirect edges. To be inserted
+        if len(df_redirects) > 0:
+            df_redirects["old_request_id"] = df_redirects["old_request_id"].apply(
+                lambda x: int(x)
+            )
+            df_redirects["key"] = df_redirects[["visit_id", "old_request_id"]].apply(
+                lambda x: get_key(*x), axis=1
+            )
+            df_redirect_edges, completed_ids_red = get_redirect_edges(
+                df_requests, df_redirects, df_responses
+            )
+            # df_redirect_edges.to_csv('/home/ubuntu/df_redirect_edges.csv', index=False)
+        else:
+            print("======== http_redirecs table is empty =========")
+            completed_ids_red = []
+            df_redirect_edges = pd.DataFrame()
+
+        try:
+            # check if df_cs_edges is empty or not. If it is empty, maybe due to no data in call stack table.
+            df_cs_edges, completed_ids_cs = get_cs_edges(
+                df_requests, df_responses, call_stacks
+            )
+
+            if df_cs_edges.empty:
+                raise ValueError("======== df_cs_edges is empty =========")
+            else:
+                # Other edges. To be inserted
+                completed_ids = set(completed_ids_red + completed_ids_cs)
+                df_normal_edges = get_normal_edges(df_requests, df_responses, completed_ids)
+
+                df_http_edges = pd.concat(
+                    [df_redirect_edges, df_cs_edges, df_normal_edges]
+                ).reset_index()
+                del df_http_edges["index"]
+                df_http_edges["action"] = pd.NA
+
+        except ValueError as e1:
+            print(e1)  # Optionally log the exception message
+
+    except Exception as e:
+        print("Error in request_components:", e)
+        traceback.print_exc()
+
+    return df_request_nodes, df_http_edges
+

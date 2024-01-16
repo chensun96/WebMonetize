@@ -86,6 +86,7 @@ def get_cookie_details(row):
 
 		return cookie_details
 
+'''
 def build_http_cookie_components(df_http_edges, df_http_nodes):
 
 	df_http_cookie_nodes = pd.DataFrame()
@@ -132,3 +133,57 @@ def build_http_cookie_components(df_http_edges, df_http_nodes):
 		traceback.print_exc()
 
 	return df_http_cookie_nodes, df_http_cookie_edges
+'''
+def build_http_cookie_components(df_http_edges, df_http_nodes):
+
+    df_http_cookie_nodes = pd.DataFrame()
+    df_http_cookie_edges = pd.DataFrame()
+
+    try:
+        """
+	df_cookies = df_http_edges[(df_http_edges['respattr'].str.contains('Set-Cookie')) \
+			        | (df_http_edges['respattr'].str.contains('set-cookie')) | (df_http_edges['reqattr'].str.contains('Cookie'))].copy()
+	"""
+        df_cookies = df_http_edges[
+            (df_http_edges['respattr'].str.contains('Set-Cookie')) |
+            (df_http_edges['respattr'].str.contains('set-cookie')) |
+            (df_http_edges['reqattr'].str.contains('Cookie'))
+        ].copy()
+        if len(df_cookies) > 0:
+            df_cookies['cookie_details'] = df_cookies.apply(get_cookie_details, axis=1)
+            df_cookies = df_cookies[['cookie_details', 'is_in_phase1']].explode('cookie_details').dropna()
+            df_cookies['src'] = df_cookies['cookie_details'].apply(lambda x: x[0])
+            df_cookies['dst'] = df_cookies['cookie_details'].apply(lambda x: x[1])
+            df_cookies['action'] = df_cookies['cookie_details'].apply(lambda x: x[2])
+            df_cookies['attr'] = df_cookies['cookie_details'].apply(lambda x: x[3])
+            df_cookies['visit_id'] = df_cookies['cookie_details'].apply(lambda x: x[4])
+            df_cookies['time_stamp'] = df_cookies['cookie_details'].apply(lambda x: x[5])
+            df_cookies = df_cookies.merge(df_http_nodes[['visit_id', 'name', 'top_level_url', 'is_in_phase1']], left_on=['visit_id', 'src', 'is_in_phase1']
+                                        , right_on=['visit_id', 'name', 'is_in_phase1'])
+            df_cookies['domain'] = df_cookies['src'].apply(get_domain)
+            df_cookies['cookie_key'] = df_cookies[['dst', 'domain']].apply(
+                lambda x: get_cookiedom_key(*x), axis=1)
+            # df_cookies.to_csv('/home/ubuntu/df_cookies.csv', index=False)
+
+	    #To be inserted
+            df_http_cookie_nodes = df_cookies[["visit_id", "cookie_key", "top_level_url", "domain", "is_in_phase1"]].copy().drop_duplicates()
+            df_http_cookie_nodes = df_http_cookie_nodes.rename(columns={'cookie_key' : 'name'})
+            df_http_cookie_nodes['type'] = "Storage"
+            df_http_cookie_nodes['attr'] = "HTTPCookie"
+
+            df_http_cookie_edges = df_cookies.drop(columns=['cookie_details', 'dst']).reset_index()
+            del df_http_cookie_edges['index']
+            df_http_cookie_edges = df_http_cookie_edges.rename(columns={'cookie_key' : 'dst'})
+            df_http_cookie_edges['reqattr'] = pd.NA
+            df_http_cookie_edges['respattr'] = pd.NA
+            df_http_cookie_edges['response_status'] = pd.NA
+            df_http_cookie_edges['post_body'] = np.nan
+            df_http_cookie_edges['post_body_raw'] = np.nan
+            #df_http_cookie_edges['time_stamp'] = pd.NA
+            # df_http_cookie_nodes.to_csv('/home/ubuntu/df_http_cookie_nodes.csv', index=False)
+            # df_http_cookie_edges.to_csv('/home/ubuntu/df_http_cookie_edges.csv', index=False)
+    except Exception as e:
+        print("Error in http_cookie_components:", e)
+        traceback.print_exc()
+
+    return df_http_cookie_nodes, df_http_cookie_edges
