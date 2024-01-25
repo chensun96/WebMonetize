@@ -51,7 +51,7 @@ def get_etldp1(url) -> str:
     domain = domain.domain + "." + domain.suffix
     return domain
 
-
+'''
 def bot_mitigation(webdriver):
     """performs three optional commands for bot-detection
     mitigation when getting a site"""
@@ -174,7 +174,7 @@ def bot_mitigation(webdriver):
 
     # bot mitigation 3: randomly wait so page visits happen with irregularity
     time.sleep(random.randrange(RANDOM_SLEEP_LOW, RANDOM_SLEEP_HIGH))
-
+'''
 
 def close_other_windows(webdriver):
     """
@@ -188,6 +188,38 @@ def close_other_windows(webdriver):
                 webdriver.switch_to.window(window)
                 webdriver.close()
         webdriver.switch_to.window(main_handle)
+
+
+def bot_mitigation(webdriver):
+    """Performs three optional commands for bot-detection mitigation when getting a site"""
+
+    # bot mitigation 1: move the randomly around a number of times
+    window_size = webdriver.get_window_size()
+    num_moves = 0
+    num_fails = 0
+    while num_moves < NUM_MOUSE_MOVES + 1 and num_fails < NUM_MOUSE_MOVES:
+        try:
+            if num_moves == 0:  # move to the center of the screen
+                x = int(round(window_size["height"] / 2))
+                y = int(round(window_size["width"] / 2))
+            else:  # move a random amount in some direction
+                move_max = random.randint(0, 500)
+                x = random.randint(-move_max, move_max)
+                y = random.randint(-move_max, move_max)
+            action = ActionChains(webdriver)
+            action.move_by_offset(x, y)
+            action.perform()
+            num_moves += 1
+        except MoveTargetOutOfBoundsException:
+            num_fails += 1
+            pass
+
+    # bot mitigation 2: scroll in random intervals down page
+    scroll_down(webdriver)
+
+    # bot mitigation 3: randomly wait so page visits happen with irregularity
+    time.sleep(random.randrange(RANDOM_SLEEP_LOW, RANDOM_SLEEP_HIGH))
+
 
 
 def tab_restart_browser(webdriver):

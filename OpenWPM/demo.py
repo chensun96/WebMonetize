@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from custom_command import LinkCountingCommand
+from custom_command import LinkCountingCommand #,ClickButtonCommand
 from openwpm.command_sequence import CommandSequence
 from openwpm.commands.browser_commands import GetCommand
 from openwpm.config import BrowserParams, ManagerParams
@@ -17,11 +17,12 @@ import pandas as pd
 NUM_BROWSERS = 4
 
 starting_index = 0
+#starting_index = 8524
 
 LOG_FILE = "multi-crawl.log"
 
 
-df = pd.read_csv('sites.csv')
+df = pd.read_csv("aff_unseen_links.csv")
 
 # open the log file in append mode
 with open(LOG_FILE, "a") as log_file:
@@ -57,13 +58,13 @@ with open(LOG_FILE, "a") as log_file:
             # save the javascript files
             browser_param.save_content = "script"
             # allow third party cookies
-            browser_param.tp_cookies = 'never'
+            browser_param.tp_cookies = 'always'            
             # Prevent any response by server due to bot detection
             browser_param.bot_mitigation  = True
 
         # Update TaskManager configuration (use this for crawl-wide settings)
-        manager_params.data_directory = Path(f"./datadir-{i}/")
-        manager_params.log_path = Path(f"./datadir-{i}/openwpm.log")
+        manager_params.data_directory = Path(f"./datadir_aff_unseen_data_{i}/")
+        manager_params.log_path = Path(f"./datadir_aff_unseen_data_{i}/openwpm.log")
 
         # memory_watchdog and process_watchdog are useful for large scale cloud crawls.
         # Please refer to docs/Configuration.md#platform-configuration-options for more information
@@ -75,8 +76,8 @@ with open(LOG_FILE, "a") as log_file:
         with TaskManager(
             manager_params,
             browser_params,
-            SQLiteStorageProvider(Path(f"./datadir-{i}/crawl-data.sqlite")),
-            LevelDbProvider(Path(f"./datadir-{i}/content.ldb")),
+            SQLiteStorageProvider(Path(f"./datadir_aff_unseen_data_{i}/crawl-data.sqlite")),
+            LevelDbProvider(Path(f"./datadir_aff_unseen_data_{i}/content.ldb")),
         ) as manager:
             # Visits the sites
             for index, site in enumerate(tqdm(sites)):
@@ -95,6 +96,10 @@ with open(LOG_FILE, "a") as log_file:
 
                 # Start by visiting the page
                 command_sequence.append_command(GetCommand(url=site, sleep=3), timeout=60)
+                
+                # [Added] To handle Youtube redirect links
+                # command_sequence.append_command(ClickButtonCommand('invalid-token-redirect-goto-site-button'))
+                
                 # Have a look at custom_command.py to see how to implement your own command
                 command_sequence.append_command(LinkCountingCommand())
 
@@ -103,3 +108,5 @@ with open(LOG_FILE, "a") as log_file:
         
         log_file.write(f"Finished crawl {i} to {i+1000}\n")
         log_file.flush()
+
+
