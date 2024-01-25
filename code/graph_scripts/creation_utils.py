@@ -89,47 +89,44 @@ def get_last_redirect_request_id(conn, visit_id):
             break
     return first_request_id
 
+def get_last_redirect_timestamp(conn, visit_id):
+    first_time_stamp = ""
 
-"""
+    # Function to extract domain from URL
+    def extract_domain(url):
+        try:
+            u = tldextract.extract(url)
+            return u.domain + "." + u.suffix
+        except:
+            return None
+    query = f"SELECT top_level_url FROM javascript WHERE visit_id = {visit_id} ORDER BY time_stamp DESC LIMIT 1"
+    result = pd.read_sql_query(query, conn)
+    last_url = result['top_level_url'].iloc[0]
+
+    domain = extract_domain(last_url)
+
+    # Find the first row with the same domain
+    query2 = f"SELECT time_stamp, top_level_url FROM javascript WHERE visit_id = {visit_id}  ORDER BY time_stamp ASC"
+    result2 = pd.read_sql_query(query2, conn)
+    for index, row in result2.iterrows():
+        if extract_domain(row['top_level_url']) == domain:
+            # print("Domain: " + domain)
+            # print("\tPhase A end with request ID: ", row['request_id'])
+            first_time_stamp = row['time_stamp']
+            break
+    return first_time_stamp
+
 def get_time_cutoff(conn, visit_id, request_id):
 
     # Define a function to get the latest time_stamp for a given request_id in a table
     def get_latest_timestamp(table_name, visit_id, request_id):
 
         if table_name == "http_redirects":
-            query = f"SELECT MAX(time_stamp) as latest_time_stamp FROM {table_name} WHERE visit_id = {visit_id} AND old_request_id < '{request_id}'"
+            query = f"SELECT MAX(time_stamp) as latest_time_stamp FROM {table_name} WHERE visit_id = {visit_id} AND CAST(old_request_id AS INT) <= {request_id}"
             result = pd.read_sql_query(query, conn)
             return result['latest_time_stamp'].iloc[0]
         else:
-            query = f"SELECT MAX(time_stamp) as latest_time_stamp FROM {table_name} WHERE visit_id = {visit_id} AND request_id < '{request_id}'"
-            result = pd.read_sql_query(query, conn)
-            return result['latest_time_stamp'].iloc[0]
-
-    # Get the latest time_stamp from each table
-    latest_timestamp_requests = get_latest_timestamp("http_requests", visit_id, request_id)
-    latest_timestamp_redirects = get_latest_timestamp("http_redirects", visit_id, request_id)
-    latest_timestamp_responses = get_latest_timestamp("http_responses", visit_id, request_id)
-
-    # Determine the latest time_stamp among the three
-    if latest_timestamp_redirects == None:
-        latest_timestamp = max(latest_timestamp_requests, latest_timestamp_responses)
-    else:
-        latest_timestamp = max(latest_timestamp_requests, latest_timestamp_redirects, latest_timestamp_responses)
-    print("Latest time_stamp for the first request_id:", latest_timestamp)
-
-    return latest_timestamp
-"""
-def get_time_cutoff(conn, visit_id, request_id):
-
-    # Define a function to get the latest time_stamp for a given request_id in a table
-    def get_latest_timestamp(table_name, visit_id, request_id):
-
-        if table_name == "http_redirects":
-            query = f"SELECT MAX(time_stamp) as latest_time_stamp FROM {table_name} WHERE visit_id = {visit_id} AND old_request_id <= '{request_id}'"
-            result = pd.read_sql_query(query, conn)
-            return result['latest_time_stamp'].iloc[0]
-        else:
-            query = f"SELECT MAX(time_stamp) as latest_time_stamp FROM {table_name} WHERE visit_id = {visit_id} AND request_id <= '{request_id}'"
+            query = f"SELECT MAX(time_stamp) as latest_time_stamp FROM {table_name} WHERE visit_id = {visit_id} AND CAST(request_id AS INT) <= {request_id}"
             result = pd.read_sql_query(query, conn)
             return result['latest_time_stamp'].iloc[0]
 
@@ -147,69 +144,44 @@ def get_time_cutoff(conn, visit_id, request_id):
     # print("\tPhase A end with time_stamp:", latest_timestamp)
     return latest_timestamp
 
-"""
+
 def read_tables_phase1(conn, visit_id):
 
     request_id = get_last_redirect_request_id(conn, visit_id)
+    time_stamp = get_last_redirect_timestamp(conn, visit_id)
 
     # Javascript table has no request_id. So find out the latest time_stamp value responding to the request id
-    time_cutoff = get_time_cutoff(conn, visit_id, request_id)
+    # time_cutoff = get_time_cutoff(conn, visit_id, request_id)
     # time_cutoff = "2023-11-13T20:46:34.889Z"
 
     # Reading and filtering other tables by timestamp
     df_http_requests_phase1 = pd.read_sql_query(
         f"SELECT visit_id, request_id, url, headers, top_level_url, "
                                          f"resource_type, time_stamp, post_body, post_body_raw "
-                                         f"FROM http_requests WHERE visit_id = {visit_id} AND request_id < {request_id}", conn)
+                                         f"FROM http_requests WHERE visit_id = {visit_id} AND CAST(request_id AS INT) <= {request_id}", conn)
     df_http_responses_phase1 = pd.read_sql_query(
         f"SELECT visit_id, request_id, url, headers, response_status, "
-                                          f"time_stamp, content_hash FROM http_responses WHERE visit_id = {visit_id} AND request_id < {request_id}", conn)
+                                          f"time_stamp, content_hash FROM http_responses WHERE visit_id = {visit_id} AND CAST(request_id AS INT) <= {request_id}", conn)
     df_http_redirects_phase1 = pd.read_sql_query(
         f"SELECT visit_id, old_request_id, old_request_url, new_request_url, "
-                                          f"response_status, headers, time_stamp FROM http_redirects WHERE visit_id = {visit_id} AND old_request_id < {request_id}", conn)
+                                          f"response_status, headers, time_stamp FROM http_redirects WHERE visit_id = {visit_id} AND CAST(old_request_id AS INT) <= {request_id}", conn)
 
     javascript_phase1 = pd.read_sql_query(
         f"SELECT visit_id, script_url, script_line, script_loc_eval, top_level_url, "
-                                   f"document_url, symbol, call_stack, operation, arguments, attributes, value, time_stamp "
-                                   f"FROM javascript WHERE visit_id = {visit_id} AND time_stamp <= '{time_cutoff}'", conn)
+        f"document_url, symbol, call_stack, operation, arguments, attributes, value, time_stamp "
+        f"FROM javascript WHERE visit_id = {visit_id}", conn)
+
+
+    javascript_phase1['time_stamp'] = pd.to_datetime(javascript_phase1['time_stamp'])
+    time_stamp_datetime = pd.to_datetime(time_stamp)
+
+    javascript_phase1 = javascript_phase1[javascript_phase1['time_stamp'] <= time_stamp_datetime]
+    
     #javascript_cookies_phase1 = pd.read_sql_query(
     #    f"SELECT * FROM javascript_cookies WHERE visit_id = {visit_id} AND time_stamp < '{time_cutoff}'", conn)
 
     call_stacks_phase1 = pd.read_sql_query(
-        f"SELECT visit_id, request_id, call_stack from callstacks where {visit_id} = visit_id AND request_id < {request_id}", conn)
-
-    return df_http_requests_phase1, df_http_responses_phase1, df_http_redirects_phase1, call_stacks_phase1, javascript_phase1
-"""
-
-def read_tables_phase1(conn, visit_id):
-
-    request_id = get_last_redirect_request_id(conn, visit_id)
-
-    # Javascript table has no request_id. So find out the latest time_stamp value responding to the request id
-    time_cutoff = get_time_cutoff(conn, visit_id, request_id)
-    # time_cutoff = "2023-11-13T20:46:34.889Z"
-
-    # Reading and filtering other tables by timestamp
-    df_http_requests_phase1 = pd.read_sql_query(
-        f"SELECT visit_id, request_id, url, headers, top_level_url, "
-                                         f"resource_type, time_stamp, post_body, post_body_raw "
-                                         f"FROM http_requests WHERE visit_id = {visit_id} AND request_id <= {request_id}", conn)
-    df_http_responses_phase1 = pd.read_sql_query(
-        f"SELECT visit_id, request_id, url, headers, response_status, "
-                                          f"time_stamp, content_hash FROM http_responses WHERE visit_id = {visit_id} AND request_id <= {request_id}", conn)
-    df_http_redirects_phase1 = pd.read_sql_query(
-        f"SELECT visit_id, old_request_id, old_request_url, new_request_url, "
-                                          f"response_status, headers, time_stamp FROM http_redirects WHERE visit_id = {visit_id} AND old_request_id <= {request_id}", conn)
-
-    javascript_phase1 = pd.read_sql_query(
-        f"SELECT visit_id, script_url, script_line, script_loc_eval, top_level_url, "
-                                   f"document_url, symbol, call_stack, operation, arguments, attributes, value, time_stamp "
-                                   f"FROM javascript WHERE visit_id = {visit_id} AND time_stamp <= '{time_cutoff}'", conn)
-    #javascript_cookies_phase1 = pd.read_sql_query(
-    #    f"SELECT * FROM javascript_cookies WHERE visit_id = {visit_id} AND time_stamp < '{time_cutoff}'", conn)
-
-    call_stacks_phase1 = pd.read_sql_query(
-        f"SELECT visit_id, request_id, call_stack from callstacks where {visit_id} = visit_id AND request_id <= {request_id}", conn)
+        f"SELECT visit_id, request_id, call_stack from callstacks where {visit_id} = visit_id AND CAST(request_id AS INT) <= {request_id}", conn)
 
     return df_http_requests_phase1, df_http_responses_phase1, df_http_redirects_phase1, call_stacks_phase1, javascript_phase1
 

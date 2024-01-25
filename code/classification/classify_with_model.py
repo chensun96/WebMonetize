@@ -136,15 +136,30 @@ def classify(df, result_dir, file_name, model_name):
 
     # predict the labels
     y_pred = clf.predict(df_features)
+    y_true = df["label"].tolist()
     print("y_pred: ", y_pred)
-    print("\ny_true: ", df["label"].tolist())
+    print("\ny_true: ", y_true)
 
-    str_confusion_matrix = np.array_str(confusion_matrix(df["label"].tolist(), y_pred, labels=["ads", "affiliate"]))
-    print("confusion_matrix:\n", str_confusion_matrix)
+    # Calculate metrics
+    accuracy = accuracy_score(y_true, y_pred)
+    precision = precision_score(y_true, y_pred, average='binary', pos_label='affiliate')  # adjust 'affiliate' if needed
+    recall = recall_score(y_true, y_pred, average='binary', pos_label='affiliate')  # adjust 'affiliate' if needed
+
+    # Calculate confusion matrix
+    conf_matrix = confusion_matrix(y_true, y_pred, labels=["ads", "affiliate"])
+
+    # Save metrics and confusion matrix to a file
+    metrics_file = os.path.join(result_dir, "classification_metrics.txt")
+    with open(metrics_file, "w") as file:
+        file.write(f"Accuracy: {accuracy}\n")
+        file.write(f"Precision: {precision}\n")
+        file.write(f"Recall: {recall}\n")
+        file.write("Confusion Matrix:\n")
+        file.write(np.array2string(conf_matrix, separator=", "))
 
     # predict the probabilities
     y_pred_proba = clf.predict_proba(df_features)
-    print(clf.classes_)  # e.g., ['affiliate' 'ads']
+    print(clf.classes_)  # e.g., ['ads' 'affiliate']
 
     # add the predicted labels to the dataframe
     df["clabel"] = y_pred
@@ -167,22 +182,40 @@ def classify(df, result_dir, file_name, model_name):
 if __name__ == "__main__":
 
     # phaseA classification
-    normal_phaseA_folder = "../../output/normal/fullGraph"  # change this!
-    ads_phaseA_folder = "../../output/ads/fullGraph"    # change this!
-    affiliate_phaseA_folder = "../../output/affiliate/fullGraph"    # change this!
-    RESULT_DIR = "../../output/results/aff_ads_graph_level_fullGraph_3/with_model_1"
-    MODEL_NAME = "../../output/results/aff_ads_graph_level_fullGraph_3/model_1.sav"
-    #RESULT_DIR = "../../output/results/aff_ads_mean_phaseA/with_model_2"
-    #MODEL_NAME = "../../output/results/aff_ads_mean_phaseA/model_2.sav"
+    normal_folder = "../../output/normal"  # change this!
+    ads_folder = "../../output/ads"    # change this!
+    affiliate_folder = "../../output/affiliate"    # change this!
+    
+    features_types = ["fullGraph", "fullGraph_simple", "phase1", "phase1_simple"]
+    #graph_types = ["affiliate", "ads"]
 
-    print("here start the aff_ads")
-    hold_out_path = "/home/data/chensun/affi_project/purl/output/results/df_labelled_holdout.csv"
-    df_labelled = pd.read_csv(hold_out_path)
+    for feature_type in features_types:
+        MODEL_NAME = f"../../output/results/01_24/{feature_type}/best_model.sav"
+        RESULT_DIR = f"../../output/results/01_24/{feature_type}/with_model"
+
+        
+        print(f"Classifying unseen data with {feature_type} features")
+        unseen_aff_path = f"../../output/affiliate/crawl_unseen/features_{feature_type}.csv" 
+        unseen_ads_path = f"../../output/ads/crawl_unseen/features_{feature_type}.csv" 
+        unseen_aff = pd.read_csv(unseen_aff_path)
+        unseen_aff['label'] = 'affiliate'
+
+        unseen_ads = pd.read_csv(unseen_ads_path)
+        unseen_ads['label'] = 'ads'
+        df_labelled= pd.concat([unseen_aff, unseen_ads], ignore_index=True)
+
+        classify(df_labelled, RESULT_DIR, "labelled_results.csv", MODEL_NAME)
+
+
+   
+
+
+    #df_labelled = pd.read_csv(hold_out_path)
     # here we say unknown is normal type url
-    df_labelled = df_labelled[df_labelled['label'] != "normal"]
-    df_unknown = df_labelled[df_labelled["label"] == "normal"]
+    #df_labelled = df_labelled[df_labelled['label'] != "normal"]
+    #df_unknown = df_labelled[df_labelled["label"] == "normal"]
 
-    classify(df_labelled, RESULT_DIR, "labelled_results.csv", MODEL_NAME)
+    
     #classify(df_unknown, RESULT_DIR, "unknown_results.csv", MODEL_NAME)
 
     #classify(df, RESULT_DIR, "all_results.csv", MODEL_NAME)

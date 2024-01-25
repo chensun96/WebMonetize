@@ -158,8 +158,12 @@ def build_http_cookie_components(df_http_edges, df_http_nodes):
             df_cookies['attr'] = df_cookies['cookie_details'].apply(lambda x: x[3])
             df_cookies['visit_id'] = df_cookies['cookie_details'].apply(lambda x: x[4])
             df_cookies['time_stamp'] = df_cookies['cookie_details'].apply(lambda x: x[5])
+
+            #df_cookies.to_csv("/home/data/chensun/affi_project/purl/graph_data/visit_data_533782973182652/df_cookies.csv")
+
             df_cookies = df_cookies.merge(df_http_nodes[['visit_id', 'name', 'top_level_url', 'is_in_phase1']], left_on=['visit_id', 'src', 'is_in_phase1']
                                         , right_on=['visit_id', 'name', 'is_in_phase1'])
+            #df_cookies.to_csv("/home/data/chensun/affi_project/purl/graph_data/visit_data_533782973182652/df_cookies_after_merge.csv")
             df_cookies['domain'] = df_cookies['src'].apply(get_domain)
             df_cookies['cookie_key'] = df_cookies[['dst', 'domain']].apply(
                 lambda x: get_cookiedom_key(*x), axis=1)

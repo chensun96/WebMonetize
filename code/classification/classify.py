@@ -463,36 +463,41 @@ def label_party(name):
 
 def gird_search(df_labelled, df_labelled_holdout, result_dir, log_pred_probability):
     train_mani = df_labelled.copy()
+    holdout_mani = df_labelled_holdout.copy()
+
     fields_to_remove = ["visit_id", "name", "label", "party", "Unnamed: 0", 'top_level_url']
+    
+    # Store the columns you want to retain
+    train_retained = train_mani[["visit_id", "name", "top_level_url"]]
+    holdout_retained = holdout_mani[["visit_id", "name", "top_level_url"]]
+
     df_feature_train = train_mani.drop(fields_to_remove, axis=1, errors="ignore")
     train_labels = train_mani.label
     col_train = df_feature_train.columns
-
     df_feature_holdout = df_labelled_holdout.drop(fields_to_remove, axis=1, errors="ignore")
-
+    
     # Align the order of features in df_feature_test with df_feature_train
     df_feature_holdout = df_feature_holdout[col_train]
-    holdout_labels = df_labelled_holdout.label
+    holdout_labels = holdout_mani.label
     col_holdout = df_feature_holdout.columns
 
     df_feature_train = df_feature_train.to_numpy()
     train_labels = train_labels.to_numpy()
 
-    result_df = df_feature_holdout.copy()
+    #result_df = df_feature_holdout.copy()
     df_feature_holdout = df_feature_holdout.to_numpy()
     holdout_labels = holdout_labels.to_numpy()
 
     
     # Define the parameter grid
     param_grid = {
-        'n_estimators': [100,150,200,250], # number of trees in the forest
+        'n_estimators': [100,150,200,250,300], # number of trees in the forest
         'max_features': [None,'sqrt'],   # consider every features /square root of features
         'max_depth': [5, 10, 20],
         'min_samples_split': [5, 10, 15],  # minimum number of samples that are required to split an internal node.
         'min_samples_leaf': [1, 2, 4],
         'bootstrap': [True, False]
     }
-
     # Initialize the classifier
     rf = RandomForestClassifier()
 
@@ -532,11 +537,17 @@ def gird_search(df_labelled, df_labelled_holdout, result_dir, log_pred_probabili
     print(best_model.classes_)  # e.g., ['ads' 'affiliate']
 
 
+    result_df = pd.DataFrame(df_feature_holdout, columns=col_train)
     result_df["clabel"] = y_pred
     result_df["clabel_prob"] = y_pred_proba[:, 1]  # assuming binary classification
     result_df['label'] = holdout_labels
+
+    # Concatenate the retained columns with result_df
+    result_df = pd.concat([holdout_retained.reset_index(drop=True), result_df.reset_index(drop=True)], axis=1)
+
     # Save to CSV
     result_df.to_csv(os.path.join(result_dir, "result.csv"), index=False)
+
 
     acc = accuracy_score(holdout_labels, y_pred)
     prec_binary = precision_score(holdout_labels, y_pred, pos_label="affiliate")
@@ -578,13 +589,14 @@ def pipeline(df, df_labels, result_dir):
 
     # how to merge label and features based on name 
     df_labels = df_labels.drop_duplicates(subset=['visit_id'])
-    print("df_labels: ", df_labels.head())
+    print("df_labels: ", len(df_labels))
 
     # drop "top_level_url" column
     new_df_labels = df_labels.drop('top_level_url', axis=1)
 
-    df = df_features.merge(new_df_labels[['visit_id', 'label', 'name']], on=["visit_id"])
-    # df.to_csv("/home/data/chensun/affi_project/purl/output/affiliate/fullGraph/test_2.csv")
+    df = df.merge(new_df_labels[['visit_id', 'label', 'name']], on=["visit_id"])
+    #df.to_csv("/home/data/chensun/affi_project/purl/output/test_1.csv")
+    
 
     # only need to drop label_y in phaseA?
     #df.drop(columns=["label_y"], inplace=True)
@@ -637,7 +649,7 @@ def pipeline(df, df_labels, result_dir):
             + "\n"
         )
         f.write("\n")
-
+        
     # sample negative labels to match positive labels
     # df_negative = df_negative.sample(n=len(df_positive), random_state=1)
     
@@ -647,10 +659,10 @@ def pipeline(df, df_labels, result_dir):
     vid_list = df_labelled["visit_id"].unique()
     print("vid_list: ", len(vid_list))
 
-
-    """
-    [Added] prepare for holdout data set
-    """
+    
+    
+    # [Added] prepare for holdout data set
+    
     num_test_vid_holdout = int(int(len(vid_list))*0.8)
     chosen_test_vid_holdout = random.sample(list(vid_list), num_test_vid_holdout)
     #vid_list_holdout = chosen_test_vid_holdout["visit_id"].unique()
@@ -659,7 +671,7 @@ def pipeline(df, df_labels, result_dir):
     df_labelled_holdout = df_labelled[~df_labelled["visit_id"].isin(chosen_test_vid_holdout)]
     
     gird_search(df_labelled, df_labelled_holdout, result_dir, log_pred_probability=True)
-
+    
     #results = classify_crossval(
     #    df_labelled_crossval, result_dir, sample=False, log_pred_probability=True
     #)
@@ -681,66 +693,226 @@ def pipeline(df, df_labels, result_dir):
 if __name__ == "__main__":
     
     # fullGraph classification
-    normal_fullGraph_folder = "../../output/normal/fullGraph"
-    ads_fullGraph_folder = "../../output/ads/fullGraph"
-    affiliate_fullGraph_folder = "../../output/affiliate/fullGraph"
-    RESULT_DIR = "../../output/results/aff_ads_graph_level_phaseA_2.1"  # change this
+    normal_folder = "../../output/normal"
+    ads_folder = "../../output/ads"
+    affiliate_folder = "../../output/affiliate"
+    RESULT_DIR_fullGraph_all = "../../output/results/01_24/fullGraph_all"
+    RESULT_DIR_fullGraph_simple = "../../output/results/01_24/fullGraph_simple" 
+    RESULT_DIR_phaseA_all = "../../output/results/01_24/phaseA_all"
+    RESULT_DIR_phaseA_simple = "../../output/results/01_24/phaseA_simple"
     
     # get features
-    df_features = pd.DataFrame()
-    """
-    for filename in os.listdir(normal_fullGraph_folder):
-        if filename.startswith("features_median") and filename.endswith(".csv"):
-            # Construct the full file path
-            file_path = os.path.join(normal_fullGraph_folder, filename)
-            df = pd.read_csv(file_path, on_bad_lines='skip')
-            print(len(df))
-            df_features = df_features.append(df)
-    """
-    for filename in os.listdir(ads_fullGraph_folder):
-        if filename.startswith("features_phase1") and filename.endswith(".csv"): # change this
-            # Construct the full file path
-            file_path = os.path.join(ads_fullGraph_folder, filename)
-            df = pd.read_csv(file_path, on_bad_lines='skip')
-            print(len(df))
-            df_features = df_features.append(df)
-
-    for filename in os.listdir(affiliate_fullGraph_folder):
-        if filename.startswith("features_phase1") and filename.endswith(".csv"): # change this
-            # Construct the full file path
-            file_path = os.path.join(affiliate_fullGraph_folder, filename)
-            df = pd.read_csv(file_path, on_bad_lines='skip')
-            print(len(df))
-            df_features = df_features.append(df)
-    print("len of features: ", len(df_features))
-
-    # get labels
-    df_labels = pd.DataFrame()
-    """
-    for filename in os.listdir(normal_fullGraph_folder):
-        if filename.startswith("labels_") and filename.endswith(".csv"):
-            # Construct the full file path
-            file_path = os.path.join(normal_fullGraph_folder, filename)
-            df = pd.read_csv(file_path, on_bad_lines='skip')
-            print(len(df))
-            df_labels = df_labels.append(df)
-    """
-    for filename in os.listdir(ads_fullGraph_folder):
-        if filename.startswith("labels_") and filename.endswith(".csv"):
-            # Construct the full file path
-            file_path = os.path.join(ads_fullGraph_folder, filename)
-            df = pd.read_csv(file_path, on_bad_lines='skip')
-            print(len(df))
-            df_labels = df_labels.append(df)
-
-    for filename in os.listdir(affiliate_fullGraph_folder):
-        if filename.startswith("labels_") and filename.endswith(".csv"):
-            # Construct the full file path
-            file_path = os.path.join(affiliate_fullGraph_folder, filename)
-            df = pd.read_csv(file_path, on_bad_lines='skip')
-            print(len(df))
-            df_labels = df_labels.append(df)
-    print("len of labels: ", len(df_labels))
-
-    pipeline(df_features, df_labels, RESULT_DIR)
+    df_ads_fullGraph_features_all = pd.DataFrame()
+    df_ads_fullGraph_features_simple = pd.DataFrame()
+    df_ads_phaseA_features_all = pd.DataFrame()
+    df_ads_phaseA_features_simple = pd.DataFrame()
+    df_ads_labels = pd.DataFrame()
     
+    for crawl_id in os.listdir(ads_folder):
+        if "unseen" in crawl_id:
+                print("\tIgnore this folder, since it is for testing")
+                continue
+        each_crawl =  os.path.join(ads_folder, crawl_id)
+        for filename in os.listdir(each_crawl):
+            # full graph
+            if filename == "features_fullGraph.csv": 
+                # Construct the full file path
+                file_path = os.path.join(each_crawl, filename)
+                df = pd.read_csv(file_path, on_bad_lines='skip')
+                df_ads_fullGraph_features_all = df_ads_fullGraph_features_all.append(df)
+
+            # full graph simple
+            elif filename == "features_fullGraph_simple.csv": 
+                # Construct the full file path
+                file_path = os.path.join(each_crawl, filename)
+                df = pd.read_csv(file_path, on_bad_lines='skip')
+                df_ads_fullGraph_features_simple = df_ads_fullGraph_features_simple.append(df)
+
+            # phase A 
+            elif filename == "features_phase1.csv": 
+                # Construct the full file path
+                file_path = os.path.join(each_crawl, filename)
+                df = pd.read_csv(file_path, on_bad_lines='skip')
+                df_ads_phaseA_features_all = df_ads_phaseA_features_all.append(df)
+
+            # phase A simple
+            elif filename == "features_phase1_simple.csv": 
+                # Construct the full file path
+                file_path = os.path.join(each_crawl, filename)
+                df = pd.read_csv(file_path, on_bad_lines='skip')
+                df_ads_phaseA_features_simple = df_ads_phaseA_features_simple.append(df)
+            elif filename == "label.csv": 
+                # Construct the full file path
+                file_path = os.path.join(each_crawl, filename)
+                df = pd.read_csv(file_path, on_bad_lines='skip')
+                df_ads_labels = df_ads_labels.append(df)
+            else:
+                continue
+        
+
+    print("len of ads fullGraph all features: ", len(df_ads_fullGraph_features_all))
+    print("len of ads fullGraph simple features: ", len(df_ads_fullGraph_features_simple))    
+    print("len of ads phaseA all features: ", len(df_ads_phaseA_features_all))
+    print("len of ads phaseA simple features: ", len(df_ads_phaseA_features_simple))
+    print("len of ads label ", len(df_ads_labels))
+
+
+    df_affiliate_fullGraph_features_all = pd.DataFrame()
+    df_affiliate_fullGraph_features_simple = pd.DataFrame()
+    df_affiliate_phaseA_features_all = pd.DataFrame()
+    df_affiliate_phaseA_features_simple = pd.DataFrame()
+    df_affiliate_labels = pd.DataFrame()
+
+    for crawl_id in os.listdir(affiliate_folder):
+        if "unseen" in crawl_id:
+                print("\tIgnore this folder, since it is for testing")
+                continue
+        each_crawl =  os.path.join(affiliate_folder, crawl_id)
+        for filename in os.listdir(each_crawl):
+            # full graph
+            if filename == "features_fullGraph.csv": 
+                # Construct the full file path
+                file_path = os.path.join(each_crawl, filename)
+                df = pd.read_csv(file_path, on_bad_lines='skip')
+                df_affiliate_fullGraph_features_all = df_affiliate_fullGraph_features_all.append(df)
+
+            # full graph simple
+            elif filename == "features_fullGraph_simple.csv": 
+                # Construct the full file path
+                file_path = os.path.join(each_crawl, filename)
+                df = pd.read_csv(file_path, on_bad_lines='skip')
+                df_affiliate_fullGraph_features_simple = df_affiliate_fullGraph_features_simple.append(df)
+
+            # phase A 
+            elif filename == "features_phase1.csv": 
+                # Construct the full file path
+                file_path = os.path.join(each_crawl, filename)
+                df = pd.read_csv(file_path, on_bad_lines='skip')
+                df_affiliate_phaseA_features_all = df_affiliate_phaseA_features_all.append(df)
+
+            # phase A simple
+            elif filename == "features_phase1_simple.csv": 
+                # Construct the full file path
+                file_path = os.path.join(each_crawl, filename)
+                df = pd.read_csv(file_path, on_bad_lines='skip')
+                df_affiliate_phaseA_features_simple = df_affiliate_phaseA_features_simple.append(df)
+            elif filename == "label.csv": 
+                # Construct the full file path
+                file_path = os.path.join(each_crawl, filename)
+                df = pd.read_csv(file_path, on_bad_lines='skip')
+                df_affiliate_labels = df_affiliate_labels.append(df)
+            else:
+                continue
+
+    print("len of affiliate fullGraph all features: ", len(df_affiliate_fullGraph_features_all))
+    print("len of affiliate fullGraph simple features: ", len(df_affiliate_fullGraph_features_simple))    
+    print("len of affiliate phaseA all features: ", len(df_affiliate_phaseA_features_all))
+    print("len of affiliate phaseA simple features: ", len(df_affiliate_phaseA_features_simple))
+    print("len of affiliate label ", len(df_affiliate_labels))
+
+    
+    df_labels_fullGraph = pd.DataFrame()
+    df_labels_fullGraph = pd.concat([df_ads_labels,df_affiliate_labels])
+
+    print("Classifying the fullGraph all features")
+    df_features_fullGraph_all = pd.DataFrame()
+    df_features_fullGraph_all = pd.concat([df_ads_fullGraph_features_all,df_affiliate_fullGraph_features_all])
+    pipeline(df_features_fullGraph_all, df_labels_fullGraph, RESULT_DIR_fullGraph_all)
+
+
+    print("Classifying the fullGraph simpler features")
+    df_features_fullGraph_simple = pd.DataFrame()
+    df_features_fullGraph_simple = pd.concat([df_ads_fullGraph_features_simple,df_affiliate_fullGraph_features_simple])
+    pipeline(df_features_fullGraph_simple, df_labels_fullGraph, RESULT_DIR_fullGraph_simple)
+
+
+    print("Classifying the phaseA all features")
+    df_features_phaseA_all = pd.DataFrame()
+    df_features_phaseA_all = pd.concat([df_ads_phaseA_features_all,df_affiliate_phaseA_features_all])
+    pipeline(df_features_phaseA_all, df_labels_fullGraph, RESULT_DIR_phaseA_all)
+
+    print("Classifying the phaseA simpler features")
+    df_features_phaseA_simple = pd.DataFrame()
+    df_features_phaseA_simple = pd.concat([df_ads_phaseA_features_simple,df_affiliate_phaseA_features_simple])
+    pipeline(df_features_phaseA_simple, df_labels_fullGraph, RESULT_DIR_phaseA_simple)
+    
+
+
+    
+
+
+
+    """
+    dfs = []
+    for filename in os.listdir(affiliate_fullGraph_folder):
+        if filename.startswith("features_fullGraph") and filename.endswith(".csv"): # change this
+            if "test" in filename:
+                print("ignore the test file")
+                continue
+            file_path = os.path.join(affiliate_fullGraph_folder, filename)
+            df = pd.read_csv(file_path, on_bad_lines='skip')
+            dfs.append(df)
+
+    # Concatenate all DataFrames and reset the index
+    df_affiliate_features = pd.concat(dfs, ignore_index=True)
+
+    # Step 2: Reduce Amazon affiliate links
+    
+    is_amazon = df_affiliate_features['name'].str.contains('amazon', case=False, na=False)
+    amazon_count = is_amazon.sum()
+    # Randomly select 1/10th of amazon link
+    fraction_to_select = 0.1
+    selected_amazon_indices = np.random.choice(
+        df_affiliate_features[is_amazon].index,
+        size=int(amazon_count * fraction_to_select),
+        replace=False
+    )
+    non_amazon_df = df_affiliate_features[~is_amazon]
+    selected_amazon_df = df_affiliate_features.loc[selected_amazon_indices]
+    reduced_df_aff_features = pd.concat([non_amazon_df, selected_amazon_df])
+    visit_ids = reduced_df_aff_features['visit_id']
+    #print("visit_ids: ", len(visit_ids))
+    #print("Original size:", len(df_features))
+    #print("Reduced size:", len(reduced_df_features))
+    print("len of aff features: ", len(reduced_df_aff_features))
+    df_features = pd.DataFrame()
+    df_features = pd.concat([df_ads_features,reduced_df_aff_features])
+    print("len of all features: ", len(df_features))
+    
+    # get labels
+    df_ads_labels = pd.DataFrame()
+    
+    for filename in os.listdir(ads_fullGraph_folder):
+        if filename.startswith("label") and filename.endswith(".csv"):
+            # Construct the full file path
+            if "test" in filename:
+                print("ignore the test file")
+                continue
+            file_path = os.path.join(ads_fullGraph_folder, filename)
+            df = pd.read_csv(file_path, on_bad_lines='skip')
+            print(len(df))
+            df_ads_labels = df_ads_labels.append(df)
+    print("len of ads label: ", len(df_ads_labels))
+
+
+    df_aff_labels = pd.DataFrame()  # Make sure df_labels is initialized
+    for filename in os.listdir(affiliate_fullGraph_folder):
+        if filename.startswith("label") and filename.endswith(".csv"):
+            if "test" in filename:
+                print("ignore the test file")
+                continue
+            file_path = os.path.join(affiliate_fullGraph_folder, filename)
+            df = pd.read_csv(file_path, on_bad_lines='skip')
+            #print("File:", filename, "Length:", len(df))
+            df_aff_labels = df_aff_labels.append(df)
+
+    filtered_df_labels = df_aff_labels[df_aff_labels['visit_id'].isin(visit_ids)]
+    print("len of aff labels: ", len(filtered_df_labels))
+
+    df_labels = pd.DataFrame()
+    df_labels = pd.concat([df_ads_labels,filtered_df_labels])
+    print("len of all labels: ", len(df_labels))
+    """
+
+
+   

@@ -192,7 +192,7 @@ def read_sql_crawl_data(visit_id, db_file, conn):
     :return: Parsed information (nodes and edges) in pandas df.
     """
 
-    # Directory where CSV files will be saved
+    #Directory where CSV files will be saved
     #dir_name = f"../graph_data/visit_data_{visit_id}/"
     #os.makedirs(dir_name, exist_ok=True)
 
@@ -278,6 +278,8 @@ def read_sql_crawl_data(visit_id, db_file, conn):
             # Concatenate to get all nodes and edges
             df_request_nodes["domain"] = None
             df_decoration_nodes["domain"] = None
+
+
             df_all_nodes = pd.concat(
                 [df_js_nodes, df_request_nodes, df_storage_node_setter, df_decoration_nodes]
             )
@@ -436,12 +438,11 @@ def apply_tasks(
     features_file,
     ldb_file,
     graph_columns,
-    tag,
     graph_folder
 ):
     try:
         start = time.time()
-        graph_fname = "graph_" + str(tag) + ".csv"
+        graph_fname = "graph.csv"
         
         graph_path = os.path.join(graph_folder,graph_fname)
         if not os.path.exists(graph_path):
@@ -450,7 +451,7 @@ def apply_tasks(
             df.reindex(columns=graph_columns).to_csv(
                 graph_path, mode="a", header=False
             )
-        G = create_graph(df)
+        # G = create_graph(df)
 
         graph_approach_features.pipeline(df, visit_id, graph_columns, graph_path)
 
@@ -460,7 +461,7 @@ def apply_tasks(
         traceback.print_exc()
 
 
-def pipeline(db_file, features_file, ldb_file, tag,  graph_folder, graph_type):
+def pipeline(db_file, features_file, ldb_file, graph_folder, graph_type):
     start = time.time()
     conn = gs.get_local_db_connection(db_file)
     try:
@@ -501,8 +502,8 @@ def pipeline(db_file, features_file, ldb_file, tag,  graph_folder, graph_type):
         "post_body_raw",
         "is_in_phase1"
     ]
-
     """
+    
     for i, row in tqdm(
         sites_visits.iterrows(),
         total=len(sites_visits),
@@ -516,10 +517,12 @@ def pipeline(db_file, features_file, ldb_file, tag,  graph_folder, graph_type):
         tqdm.write("")
            
         tqdm.write(f"• Visit ID: {visit_id} | Site URL: {site_url}")
-        this_tag = tag
         try:
             start = time.time()
-        
+
+            #if visit_id != 335396880693770:
+            #    continue
+ 
             # this cannot be parallelized as it is reading from the sqlite file, only one process at a time can do that
             pdf = read_sql_crawl_data(visit_id, db_file, conn)
             if pdf.empty:
@@ -529,7 +532,7 @@ def pipeline(db_file, features_file, ldb_file, tag,  graph_folder, graph_type):
             end = time.time()
             print("Built graph of shape: ", pdf.shape, "in :", end - start)
             pdf = pdf[pdf["top_level_domain"].notnull()]
-            
+
             """
     """
             # Below is procesing. Check if a link is affiliate or not
@@ -551,8 +554,10 @@ def pipeline(db_file, features_file, ldb_file, tag,  graph_folder, graph_type):
                     df.to_csv(normal_link, mode='a', header=False, index=False)
 
                 this_tag = this_tag + "_normal"
+
             """
-    """
+
+    """      
             # extract graph features
             pdf.groupby(["visit_id"]).apply(
                 apply_tasks,
@@ -560,10 +565,9 @@ def pipeline(db_file, features_file, ldb_file, tag,  graph_folder, graph_type):
                 features_file,
                 ldb_file,
                 graph_columns,
-                this_tag,
                 graph_folder
             )
-
+            
             end = time.time()
             print("Finished processing graph: ", row["visit_id"], "in :", end - start)
             
@@ -574,14 +578,14 @@ def pipeline(db_file, features_file, ldb_file, tag,  graph_folder, graph_type):
             traceback.print_exc()
             pass
     """
-     
+    
     # Label the graph
     print("Labelling the graph")
-    label_fname = "label_" + str(tag) + ".csv"
+    label_fname = "label.csv"
     labels_path = os.path.join(graph_folder, label_fname)
     print(labels_path)
 
-    graph_fname = "graph_" + str(tag) + ".csv"       
+    graph_fname = "graph.csv"     
     graph_path = os.path.join(graph_folder,graph_fname)
     print(graph_path)
 
@@ -592,7 +596,6 @@ def pipeline(db_file, features_file, ldb_file, tag,  graph_folder, graph_type):
 
     
 
-    
 if __name__ == "__main__":
 
     # get the features file, the dataset folder and the output folder from the command line\
@@ -623,23 +626,24 @@ if __name__ == "__main__":
 
     #for i in range(0, 3000, 1000):
     #print("Processing:", i)
-    DB_FILE = os.path.join(FOLDER, f"datadir_affiliate-6000/crawl-data.sqlite")
-    LDB_FILE = os.path.join(FOLDER, f"datadir_affiliate-6000/content.ldb")
+    DB_FILE = os.path.join(FOLDER, f"datadir_ads_2/crawl-data.sqlite")
+    LDB_FILE = os.path.join(FOLDER, f"datadir_ads_2/content.ldb")
     print(DB_FILE, LDB_FILE)
 
-    if not(os.path.exists("../output")):
-        #print("not exists")
-        os.makedirs("../output")
+    subfolder = "crawl_"+ TAG
+    graph_type = "ads" #!! change to affiliate/ads/normal !!
+    graph_folder = os.path.join(OUTPUT, graph_type, subfolder)
 
-    graph_type = "ads" #!! change to affiliate/ads/normal
-    graph_folder = os.path.join(OUTPUT,graph_type)
+    if not os.path.exists(graph_folder):
+        os.makedirs(graph_folder)
+
+
+    
     #graph_folder = os.path.abspath('../output/affiliate')  
     #print(graph_folder)
     #TAG = str(0)
-    pipeline(DB_FILE, FEATURES_FILE, LDB_FILE, TAG, graph_folder, graph_type)
+    pipeline(DB_FILE, FEATURES_FILE, LDB_FILE, graph_folder, graph_type)
         
-    
-
     
     
 

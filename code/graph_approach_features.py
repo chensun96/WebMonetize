@@ -350,6 +350,7 @@ def apply_tasks(
     ldb_file,
     graph_columns,
     graph_feature_columns,
+    graph_feature_columns_simple,
     graph_path
 ):
     try:
@@ -368,7 +369,7 @@ def apply_tasks(
 
             #print(f"get the {i} level features")
             G = create_graph(dataframe)
-            node_feature, node_feature_name, connectivity_feature, connectivity_feature_names = gs.extract_full_graph_features(G, visit_id, key, graph_path)
+            node_feature, node_feature_name, connectivity_feature, connectivity_feature_names, simpler_feature, simpler_feature_name = gs.extract_full_graph_features(G, visit_id, key, graph_path)
             
             #df.to_csv("/home/data/chensun/affi_project/purl/output/affiliate/fullGraph/df_features_1.csv")
             # crate graph for this single df (visit id)
@@ -387,25 +388,38 @@ def apply_tasks(
 
             df_features = pd.DataFrame([[visit_id] + all_features], columns=all_feature_names)
             #print("df_features: ", df_features.columns)
-        
+
             df_features = df_features.merge(df_top_domain, on='visit_id', how='left')
             #print("df_features", df_features.columns)
+            
 
+            # get the graph simpler features
+            simpler_feature_names = ["visit_id"] + simpler_feature_name
+            df_features_simpler = pd.DataFrame([[visit_id] + simpler_feature] , columns= simpler_feature_names)
+            df_features_simpler = df_features_simpler.merge(df_top_domain, on='visit_id', how='left')
            
             if key == 'phase1':
-                df_features_path = graph_path.replace('graph_', 'features_phase1_')
-                print("df_features_path: ", df_features_path)
+                df_features_path = graph_path.replace('graph', 'features_phase1')
+                df_features_simpler_path = graph_path.replace('graph', 'features_phase1_simple')
+                print("df_features_simpler_phase1_path: ", df_features_simpler_path)
                 #df_features_path = "/home/data/chensun/affi_project/purl/output/ads/fullGraph/graph_level_features_phase1.csv"
             else:
-                df_features_path = graph_path.replace('graph_', 'features_fullGraph_')
-                print("df_features_path: ", df_features_path)
+                df_features_path = graph_path.replace('graph', 'features_fullGraph')
+                df_features_simpler_path = graph_path.replace('graph', 'features_fullGraph_simple')
+                print("df_features_simpler_fullGraph_path: ", df_features_simpler_path)
 
             if not os.path.exists(df_features_path):
-
                 df_features.reindex(columns=graph_feature_columns).to_csv(df_features_path)
             else:
                 df_features.reindex(columns=graph_feature_columns).to_csv(
                     df_features_path, mode="a", header=False
+            )    
+
+            if not os.path.exists(df_features_simpler_path):
+                df_features_simpler.reindex(columns=graph_feature_columns_simple).to_csv(df_features_simpler_path)
+            else:
+                df_features_simpler.reindex(columns=graph_feature_columns_simple).to_csv(
+                    df_features_simpler_path, mode="a", header=False
             )
             end = time.time()
             print("Extracted features:", end - start)
@@ -455,6 +469,24 @@ def pipeline(df, visit_id, graph_columns, graph_path):
         "max_closeness_centrality_outward", 
         "min_closeness_centrality_outward", 
         "std_dev_closeness_centrality_outward",
+        "average_path_length_for_largest_cc"
+    ]
+
+    graph_feature_columns_simple = [
+        "visit_id",
+        "name",
+        "top_level_url",
+        "num_nodes", 
+        "num_edges", 
+        "max_in_degree", 
+        "max_out_degree", 
+        "nodes_div_by_edges", 
+        "edges_div_by_nodes", 
+        "density", 
+        "largest_cc", 
+        "number_of_ccs", 
+        "transitivity", 
+        "average_path_length_for_largest_cc"
     ]
 
     df.groupby(["visit_id"]).apply(
@@ -463,14 +495,41 @@ def pipeline(df, visit_id, graph_columns, graph_path):
                     None,
                     graph_columns,
                     graph_feature_columns,
+                    graph_feature_columns_simple,
                     graph_path
     )
 
-
-
             
-"""
 if __name__ == "__main__":
+    graph_columns = [
+        "visit_id",
+        "name",
+        "top_level_url",
+        "type",
+        "attr",
+        "domain",
+        "document_url",
+        "setter",
+        "setting_time_stamp",
+        "top_level_domain",
+        "setter_domain",
+        "graph_attr",
+        "party",
+        "src",
+        "dst",
+        "action",
+        "time_stamp",
+        "reqattr",
+        "respattr",
+        "response_status",
+        "content_hash",
+        "post_body",
+        "post_body_raw",
+        "is_in_phase1"
+    ]
+
+    """
+    
     url_type = ["affiliate"]
     #url_type = ['ads']
     for type_name in url_type:
@@ -482,6 +541,19 @@ if __name__ == "__main__":
             if filename.startswith("graph_") and filename.endswith(".csv"):
                 # get the graph_{i}.csv 
                 fullGraph_path = os.path.join(full_graph_folder, filename)
-                pipeline(fullGraph_path)
+                df_Graph = pd.read_csv(fullGraph_path)
+                visit_ids = df_Graph['visit_id'].unique()
+                #print(visit_ids)
+                for visit_id in visit_ids:
+                    df = df_Graph[df_Graph['visit_id'] == visit_id]
+                    pipeline(df, visit_id, graph_columns, fullGraph_path)
+                    
+    """
+    fullGraph_path = "/home/data/chensun/affi_project/purl/output/graph_0.csv"
+    df_Graph = pd.read_csv(fullGraph_path)
+    visit_ids = df_Graph['visit_id'].unique()
+    #print(visit_ids)
+    for visit_id in visit_ids:
+        df = df_Graph[df_Graph['visit_id'] == visit_id]
+        pipeline(df, visit_id, graph_columns, fullGraph_path)
 
-"""

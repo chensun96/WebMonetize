@@ -73,12 +73,15 @@ def build_graph(pdf):
     3. Creates graph from edges.
     4. Updates node attributes in graph.
     """
+
+    print("here in graph_builder")
     df_nodes = pdf[(pdf["graph_attr"] == "Node") | (pdf["graph_attr"] == "NodeWG")]
     df_edges = pdf[(pdf["graph_attr"] == "Edge") | (pdf["graph_attr"] == "EdgeWG")]
     df_nodes = df_nodes.groupby(['visit_id', 'name'], \
         as_index=False).agg({'type': lambda x: list(x), \
         'attr': lambda x: list(x), 'domain' : lambda x: list(x)[0], \
-        'top_level_domain' : lambda x: list(x)[0]})
+        'top_level_domain' : lambda x: list(x)[0], \
+            'is_in_phase1': lambda x: any(x)})
 
     df_nodes['type'] = df_nodes['type'].apply(modify_type)
     df_nodes['attr'] = df_nodes['attr'].apply(modify_attr)
