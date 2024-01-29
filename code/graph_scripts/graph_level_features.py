@@ -400,7 +400,7 @@ def graph_info_full_data_in_txt(G, visit_id, max_in_degree,max_out_degree,
                     file.write("\n")
         file.write("\n")
 
-def extract_full_graph_features(G, visit_id, graph_type, graph_path): 
+def extract_graph_features(G, visit_id, graph_type, graph_path): 
     node_feature = []
     connectivity_feature = []
     

@@ -436,6 +436,7 @@ def apply_tasks(
     df,
     visit_id,
     features_file,
+    final_page_url,
     ldb_file,
     graph_columns,
     graph_folder
@@ -453,7 +454,7 @@ def apply_tasks(
             )
         # G = create_graph(df)
 
-        graph_approach_features.pipeline(df, visit_id, graph_columns, graph_path)
+        graph_approach_features.pipeline(df, visit_id, final_page_url, graph_columns, graph_path)
 
 
     except Exception as e:
@@ -502,7 +503,7 @@ def pipeline(db_file, features_file, ldb_file, graph_folder, graph_type):
         "post_body_raw",
         "is_in_phase1"
     ]
-    """
+    
     
     for i, row in tqdm(
         sites_visits.iterrows(),
@@ -522,19 +523,33 @@ def pipeline(db_file, features_file, ldb_file, graph_folder, graph_type):
 
             #if visit_id != 335396880693770:
             #    continue
+            
+            """
+            features_fname = "features_phase1.csv"
+            features_path = os.path.join(graph_folder,features_fname)
+            df_features = pd.read_csv(features_path)
+            # if visit_id in df_features["visit_id"], continue
+            if visit_id in df_features['visit_id'].values:
+                print("continue since already include")
+                continue
+            """
+
  
             # this cannot be parallelized as it is reading from the sqlite file, only one process at a time can do that
             pdf = read_sql_crawl_data(visit_id, db_file, conn)
             if pdf.empty:
                 print("Fail to crawl this link since empty callstacks. Ignore")
                 continue
+
+            final_page_url = gs.get_final_page_url(conn, visit_id)
+            print("final_page_url: ", final_page_url)
         
             end = time.time()
             print("Built graph of shape: ", pdf.shape, "in :", end - start)
             pdf = pdf[pdf["top_level_domain"].notnull()]
 
             """
-    """
+    
             # Below is procesing. Check if a link is affiliate or not
             normal_link = "/home/data/chensun/affi_project/purl/code/normal_potential.csv"
 
@@ -557,12 +572,13 @@ def pipeline(db_file, features_file, ldb_file, graph_folder, graph_type):
 
             """
 
-    """      
+          
             # extract graph features
             pdf.groupby(["visit_id"]).apply(
                 apply_tasks,
                 visit_id,
                 features_file,
+                final_page_url,
                 ldb_file,
                 graph_columns,
                 graph_folder
@@ -570,6 +586,24 @@ def pipeline(db_file, features_file, ldb_file, graph_folder, graph_type):
             
             end = time.time()
             print("Finished processing graph: ", row["visit_id"], "in :", end - start)
+
+            # Collect site url domain
+            print("Collecting site url domain")
+            records_fname = "records.csv"
+            records_path = os.path.join(graph_folder, records_fname)
+            print(records_path)
+            site_url_domain = gs.get_domain(site_url)
+            df = pd.DataFrame({
+                'visit_id': [visit_id],
+                'site_url_domain': [site_url_domain],
+                'site_url': [site_url]
+            })
+            if not os.path.exists(records_path):
+                df.to_csv(records_path, index=False)
+            else:
+                df.to_csv(records_path, mode="a", header=False, index=False)
+
+
             
         except Exception as e:
             fail += 1
@@ -577,7 +611,7 @@ def pipeline(db_file, features_file, ldb_file, graph_folder, graph_type):
             tqdm.write(f"Error: {e}")
             traceback.print_exc()
             pass
-    """
+    
     
     # Label the graph
     print("Labelling the graph")
@@ -594,6 +628,10 @@ def pipeline(db_file, features_file, ldb_file, graph_folder, graph_type):
 
     df_labels.to_csv(labels_path, index=False)
 
+    # Collect site url domain
+    print("Collecting site url domain")
+
+    
     
 
 if __name__ == "__main__":
@@ -626,12 +664,12 @@ if __name__ == "__main__":
 
     #for i in range(0, 3000, 1000):
     #print("Processing:", i)
-    DB_FILE = os.path.join(FOLDER, f"datadir_ads_2/crawl-data.sqlite")
-    LDB_FILE = os.path.join(FOLDER, f"datadir_ads_2/content.ldb")
+    DB_FILE = os.path.join(FOLDER, f"datadir_affiliate_6000/crawl-data.sqlite")
+    LDB_FILE = os.path.join(FOLDER, f"datadir_affiliate_6000/content.ldb")
     print(DB_FILE, LDB_FILE)
 
     subfolder = "crawl_"+ TAG
-    graph_type = "ads" #!! change to affiliate/ads/normal !!
+    graph_type = "affiliate" #!! change to affiliate/ads/normal !!
     graph_folder = os.path.join(OUTPUT, graph_type, subfolder)
 
     if not os.path.exists(graph_folder):

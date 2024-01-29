@@ -347,6 +347,7 @@ def get_features(pdf, G, visit_id, features_file, ldb_file, tag):
 def apply_tasks(
     df,
     visit_id,
+    final_page_url,
     ldb_file,
     graph_columns,
     graph_feature_columns,
@@ -363,14 +364,25 @@ def apply_tasks(
         dataframes = {'phase1': phase1_df, 'fullGraph': df}
         
         for key, dataframe in dataframes.items():
+
+            # ignore to build full graph features 
+            if key == 'fullGraph':
+                continue
+
             all_feature_names = ["visit_id"]
             start = time.time()
             # print(df.columns)
 
             #print(f"get the {i} level features")
             G = create_graph(dataframe)
-            node_feature, node_feature_name, connectivity_feature, connectivity_feature_names, simpler_feature, simpler_feature_name = gs.extract_full_graph_features(G, visit_id, key, graph_path)
+
+            # extract gerenal graph features
+            node_feature, node_feature_name, connectivity_feature, connectivity_feature_names, simpler_feature, simpler_feature_name = gs.extract_graph_features(G, visit_id, key, graph_path)
             
+
+            # extract storage features
+            storage_features, storage_features_name = gs.extract_storage_features(dataframe, key, final_page_url, graph_path)
+
             #df.to_csv("/home/data/chensun/affi_project/purl/output/affiliate/fullGraph/df_features_1.csv")
             # crate graph for this single df (visit id)
             #G = create_graph(df) # fullGraph
@@ -379,11 +391,12 @@ def apply_tasks(
             #url_feature, url_feature_name = extract_url_features(phase1_G)
 
             all_features = (
-            node_feature + connectivity_feature 
+            node_feature + connectivity_feature + storage_features 
             )
             all_feature_names += (
                 node_feature_name
                 + connectivity_feature_names
+                + storage_features_name
             )
 
             df_features = pd.DataFrame([[visit_id] + all_features], columns=all_feature_names)
@@ -394,8 +407,8 @@ def apply_tasks(
             
 
             # get the graph simpler features
-            simpler_feature_names = ["visit_id"] + simpler_feature_name
-            df_features_simpler = pd.DataFrame([[visit_id] + simpler_feature] , columns= simpler_feature_names)
+            simpler_feature_names = ["visit_id"] + simpler_feature_name + storage_features_name
+            df_features_simpler = pd.DataFrame([[visit_id] + simpler_feature + storage_features] , columns= simpler_feature_names)
             df_features_simpler = df_features_simpler.merge(df_top_domain, on='visit_id', how='left')
            
             if key == 'phase1':
@@ -429,7 +442,7 @@ def apply_tasks(
         traceback.print_exc()
 
 
-def pipeline(df, visit_id, graph_columns, graph_path):
+def pipeline(df, visit_id, final_page_url, graph_columns, graph_path):
    
     print(f"Building graph lebel features in {graph_path}")
     
@@ -469,7 +482,19 @@ def pipeline(df, visit_id, graph_columns, graph_path):
         "max_closeness_centrality_outward", 
         "min_closeness_centrality_outward", 
         "std_dev_closeness_centrality_outward",
-        "average_path_length_for_largest_cc"
+        "average_path_length_for_largest_cc",
+        "num_get_storage",
+        "num_set_storage",
+        "num_get_storage_js",
+        "num_set_storage_js",
+        "num_all_gets",
+        "num_all_sets",
+        "num_get_storage_in_product_node",
+        "num_set_storage_in_product_node",
+        "num_get_storage_js_in_product_node",
+        "num_set_storage_js_in_product_node",
+        "num_all_gets_in_product_node",
+        "num_all_sets_in_product_node",
     ]
 
     graph_feature_columns_simple = [
@@ -486,16 +511,29 @@ def pipeline(df, visit_id, graph_columns, graph_path):
         "largest_cc", 
         "number_of_ccs", 
         "transitivity", 
-        "average_path_length_for_largest_cc"
+        "average_path_length_for_largest_cc",
+        "num_get_storage",
+        "num_set_storage",
+        "num_get_storage_js",
+        "num_set_storage_js",
+        "num_all_gets",
+        "num_all_sets",
+        "num_get_storage_in_product_node",
+        "num_set_storage_in_product_node",
+        "num_get_storage_js_in_product_node",
+        "num_set_storage_js_in_product_node",
+        "num_all_gets_in_product_node",
+        "num_all_sets_in_product_node",
     ]
 
     df.groupby(["visit_id"]).apply(
                     apply_tasks,
                     visit_id,
+                    final_page_url,
                     None,
                     graph_columns,
                     graph_feature_columns,
-                    graph_feature_columns_simple,
+                    graph_feature_columns_simple,  
                     graph_path
     )
 

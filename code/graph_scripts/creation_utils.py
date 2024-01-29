@@ -185,6 +185,20 @@ def read_tables_phase1(conn, visit_id):
 
     return df_http_requests_phase1, df_http_responses_phase1, df_http_redirects_phase1, call_stacks_phase1, javascript_phase1
 
+
+def get_final_page_url(conn, visit_id):
+    request_id = get_last_redirect_request_id(conn, visit_id)
+    query = f"""
+    SELECT url, time_stamp 
+    FROM http_requests 
+    WHERE visit_id = {visit_id} AND CAST(request_id AS INT) = {request_id} 
+    ORDER BY time_stamp DESC 
+    LIMIT 1
+    """
+    df_url = pd.read_sql_query(query, conn)
+    return df_url.iloc[0]['url']
+
+
 def add_marker_column(
         df_requests, df_responses, df_redirects, call_stacks, javascript,
         df_requests_phase1, df_responses_phase1, df_redirects_phase1, call_stacks_phase1, javascript_phase1
