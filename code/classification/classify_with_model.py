@@ -124,7 +124,7 @@ def classify(df, result_dir, file_name, model_name):
     clf = pickle.load(open(model_name, "rb"))
 
 
-    fields_to_remove = ["visit_id", "name", "label", "top_level_url", "Unnamed: 0", 'Unnamed: 0.1']
+    fields_to_remove = ["visit_id", "name", "label", "top_level_url", "Unnamed: 0", 'Unnamed: 0.1', "Unnamed: 0_x" ,"Unnamed: 0_y"]
 
     df_features = df.drop(fields_to_remove, axis=1, errors="ignore")
     #df_features.to_csv("/home/data/chensun/affi_project/purl/output/affiliate/fullGraph/test_2.csv")
@@ -186,12 +186,12 @@ if __name__ == "__main__":
     ads_folder = "../../output/ads"    # change this!
     affiliate_folder = "../../output/affiliate"    # change this!
     
-    features_types = ["fullGraph", "fullGraph_simple", "phase1", "phase1_simple"]
+    features_types = ["phase1", "phase1_simple"]
     #graph_types = ["affiliate", "ads"]
 
     for feature_type in features_types:
-        MODEL_NAME = f"../../output/results/01_24/{feature_type}/best_model.sav"
-        RESULT_DIR = f"../../output/results/01_24/{feature_type}/with_model"
+        MODEL_NAME = f"../../output/results/01_31/{feature_type}/best_model.sav"
+        RESULT_DIR = f"../../output/results/01_31/{feature_type}/with_model"
 
         
         print(f"Classifying unseen data with {feature_type} features")

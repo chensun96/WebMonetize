@@ -342,7 +342,120 @@ def get_features(pdf, G, visit_id, features_file, ldb_file, tag):
     df_features = extract_graph_features(pdf, G, visit_id, ldb, feature_config, tag)
     print("here")
     return df_features
+
+
+def apply_tasks_for_storage_features(
+    df,
+    visit_id,
+    final_page_url,
+    ldb_file,
+    graph_columns,
+    graph_feature_columns,
+    graph_feature_columns_simple,
+    graph_path
+):  
+    try:
+
+        df_top_domain = gs.extract_url_domain(df)
+        df_top_domain = df_top_domain.drop_duplicates(subset=['visit_id', 'top_level_url']) 
+
+        # get phase1 level and graph level features
+        phase1_df = df[df['is_in_phase1'] == True]
+        dataframes = {'phase1': phase1_df, 'fullGraph': df}
+        
+        for key, dataframe in dataframes.items():
+
+            # ignore to build full graph features 
+            if key == 'fullGraph':
+                continue
+
+
+            all_feature_names = ["visit_id"]
+            start = time.time()
+            # print(df.columns)
+
+            #print(f"get the {i} level features")
+            G = create_graph(dataframe)
+
+            # extract storage features
+            storage_features, storage_features_name = gs.extract_storage_features(dataframe, key, final_page_url, graph_path)
+
+            #df.to_csv("/home/data/chensun/affi_project/purl/output/affiliate/fullGraph/df_features_1.csv")
+            # crate graph for this single df (visit id)
+            #G = create_graph(df) # fullGraph
+
+            #df_features = get_features(df, G, visit_id, features_file, ldb_file, tag)
+            #url_feature, url_feature_name = extract_url_features(phase1_G)
+
+            all_features = storage_features 
+            
+            all_feature_names += storage_features_name
+            
+
+            df_features = pd.DataFrame([[visit_id] + all_features], columns=all_feature_names)
+            #print("df_features: ", df_features.columns)
+
+
+            df_features_path = os.path.join(graph_path,"storage.csv")
+            print("storage: ", df_features_path)
     
+            
+            if not os.path.exists(df_features_path):
+                df_features.reindex(columns=graph_feature_columns).to_csv(df_features_path)
+            else:
+                df_features.reindex(columns=graph_feature_columns).to_csv(
+                    df_features_path, mode="a", header=False
+            )    
+
+      
+            
+            end = time.time()
+            print("Extracted features:", end - start)
+            
+    except Exception as e:
+        print("Errored in pipeline:", e)
+        traceback.print_exc()
+   
+  
+"""
+
+            # get the graph simpler features
+            simpler_feature_names = ["visit_id"]  + storage_features_name
+            df_features_simpler = pd.DataFrame([[visit_id]  + storage_features] , columns= simpler_feature_names)
+            df_features_simpler = df_features_simpler.merge(df_top_domain, on='visit_id', how='left')
+           
+            if key == 'phase1':
+                df_features_path = graph_path.replace('graph', 'features_phase1')
+                df_features_simpler_path = graph_path.replace('graph', 'features_phase1_simple')
+                print("df_features_simpler_phase1_path: ", df_features_simpler_path)
+                #df_features_path = "/home/data/chensun/affi_project/purl/output/ads/fullGraph/graph_level_features_phase1.csv"
+            else:
+                df_features_path = graph_path.replace('graph', 'features_fullGraph')
+                df_features_simpler_path = graph_path.replace('graph', 'features_fullGraph_simple')
+                print("df_features_simpler_fullGraph_path: ", df_features_simpler_path)
+
+            if not os.path.exists(df_features_path):
+                df_features.reindex(columns=graph_feature_columns).to_csv(df_features_path)
+            else:
+                df_features.reindex(columns=graph_feature_columns).to_csv(
+                    df_features_path, mode="a", header=False
+            )    
+
+            if not os.path.exists(df_features_simpler_path):
+                df_features_simpler.reindex(columns=graph_feature_columns_simple).to_csv(df_features_simpler_path)
+            else:
+                df_features_simpler.reindex(columns=graph_feature_columns_simple).to_csv(
+                    df_features_simpler_path, mode="a", header=False
+            )
+
+            
+            end = time.time()
+            print("Extracted features:", end - start)
+            
+    except Exception as e:
+        print("Errored in pipeline:", e)
+        traceback.print_exc()
+"""
 
 def apply_tasks(
     df,
@@ -368,6 +481,8 @@ def apply_tasks(
             # ignore to build full graph features 
             if key == 'fullGraph':
                 continue
+
+
 
             all_feature_names = ["visit_id"]
             start = time.time()
@@ -440,11 +555,59 @@ def apply_tasks(
     except Exception as e:
         print("Errored in pipeline:", e)
         traceback.print_exc()
+                                       
+
+def pipline_only_extract_storage_features(df, visit_id, final_page_url, graph_columns, graph_path):
+    print(f"Building graph storage features in {graph_path}")
+    
+    graph_feature_columns = [
+        "visit_id",
+        "num_get_storage",
+        "num_set_storage",
+        "num_get_storage_js",
+        "num_set_storage_js",
+        "num_all_gets",
+        "num_all_sets",
+        "num_get_storage_in_product_node",
+        "num_set_storage_in_product_node",
+        "num_get_storage_js_in_product_node",
+        "num_set_storage_js_in_product_node",
+        "num_all_gets_in_product_node",
+        "num_all_sets_in_product_node",
+    ]
+
+
+    graph_feature_columns_simple = [
+        "visit_id",
+        "num_get_storage",
+        "num_set_storage",
+        "num_get_storage_js",
+        "num_set_storage_js",
+        "num_all_gets",
+        "num_all_sets",
+        "num_get_storage_in_product_node",
+        "num_set_storage_in_product_node",
+        "num_get_storage_js_in_product_node",
+        "num_set_storage_js_in_product_node",
+        "num_all_gets_in_product_node",
+        "num_all_sets_in_product_node",
+    ]
+
+    df.groupby(["visit_id"]).apply(
+                    apply_tasks_for_storage_features,
+                    visit_id,
+                    final_page_url,
+                    None,
+                    graph_columns,
+                    graph_feature_columns,
+                    graph_feature_columns_simple,  
+                    graph_path,
+    )
 
 
 def pipeline(df, visit_id, final_page_url, graph_columns, graph_path):
    
-    print(f"Building graph lebel features in {graph_path}")
+    print(f"Building graph features in {graph_path}")
     
     graph_feature_columns = [
         "visit_id",
@@ -587,11 +750,35 @@ if __name__ == "__main__":
                     pipeline(df, visit_id, graph_columns, fullGraph_path)
                     
     """
-    fullGraph_path = "/home/data/chensun/affi_project/purl/output/graph_0.csv"
+
+    
+    fullGraph_path = "/home/data/chensun/affi_project/purl/output/ads/crawl_unseen/graph.csv"
+    features_path = "/home/data/chensun/affi_project/purl/output/ads/crawl_unseen/features_phase1.csv"
+    features_simple_path = "/home/data/chensun/affi_project/purl/output/ads/crawl_unseen/features_phase1_simple.csv"
+    """
     df_Graph = pd.read_csv(fullGraph_path)
     visit_ids = df_Graph['visit_id'].unique()
+    
+    db_file = "/home/data/chensun/affi_project/purl/OpenWPM_old/datadir_affiliate_6524/crawl-data.sqlite"
+    conn = gs.get_local_db_connection(db_file)
     #print(visit_ids)
     for visit_id in visit_ids:
+        final_page_url = gs.get_final_page_url(conn,visit_id)
+        print(final_page_url)
+        print(visit_id)
         df = df_Graph[df_Graph['visit_id'] == visit_id]
-        pipeline(df, visit_id, graph_columns, fullGraph_path)
+        pipline_only_extract_storage_features(df, visit_id, final_page_url, graph_columns, fullGraph_path)
 
+    """    
+    
+    df_features = pd.read_csv("/home/data/chensun/affi_project/purl/output/ads/crawl_unseen/storage.csv")
+
+    features_path = pd.read_csv(features_path)
+    features_simple_path = pd.read_csv(features_simple_path) 
+    #df_full_features = df_features.merge(features_path, on='visit_id', how='right')
+    #df_full_features_simple = df_features.merge(features_simple_path, on='visit_id', how='right')
+    df_full_features = features_path.merge(df_features, on='visit_id', how='left')
+    df_full_features_simple = features_simple_path.merge(df_features, on='visit_id', how='left')
+    df_full_features.to_csv("/home/data/chensun/affi_project/purl/output/ads/crawl_unseen/features_phase1_1.csv", index=False)
+    df_full_features_simple.to_csv("/home/data/chensun/affi_project/purl/output/ads/crawl_unseen/features_phase1_simple_1.csv", index=False)
+                                                    

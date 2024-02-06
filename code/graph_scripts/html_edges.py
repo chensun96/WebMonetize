@@ -56,7 +56,7 @@ def convert_attr(row):
 		attr = json.dumps(attr)
 		return attr
 	except Exception as e:
-		print(e)
+		print("Error when convert attribut of an element: ", e)
 		return json.dumps(attr)
 
 def convert_subtype(x):
@@ -231,6 +231,7 @@ def build_html_components(df_javascript):
 
 	df_js_nodes = pd.DataFrame()
 	df_js_edges = pd.DataFrame()
+	print("here")
 
 	try:
 		#Find all created elements
@@ -283,9 +284,10 @@ def build_html_components(df_javascript):
 		src_elements['type'] = "Request"
 		src_elements = find_parent_elem(src_elements, df_element_nodes)
 
-                # Handle "Error occurred: Invalid data type for new_attr. Float64 detected" error
-		if src_elements.empty:
-			return df_js_nodes, df_js_edges
+        # Handle "Error occurred: Invalid data type for new_attr. Float64 detected" error
+		#if src_elements.empty:
+		#	print("src_elements is empty")
+		#	return df_js_nodes, df_js_edges
 			
 		src_elements['action'] = "setsrc"
 
@@ -311,6 +313,9 @@ def build_html_components(df_javascript):
 		df_js_edges['respattr'] = pd.NA
 		df_js_edges['response_status'] = pd.NA
 		df_js_edges['attr'] = pd.NA
+		
+		#print("len of js nodes: ", len(df_js_nodes))
+		#print("len of js edges: ", len(df_js_edges))
 
 	except Exception as e:
 		print("Error in build_html_components:", e)

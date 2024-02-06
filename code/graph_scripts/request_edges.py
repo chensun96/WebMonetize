@@ -103,6 +103,7 @@ def process_redirects(df):
             "is_in_phase1"
         ]
     ]
+    edges.to_csv('/home/data/chensun/affi_project/purl/output/ads/crawl_test_buildGraph/process_redirects.csv', index=False)
     edges = edges.rename(
         columns={
             "old_request_url": "src",
@@ -199,9 +200,14 @@ def get_redirect_edges(df_requests, df_redirects, df_responses):
     '''
 
 def get_redirect_edges(df_requests, df_redirects, df_responses):
+
     df_reqheaders = df_requests[
         ["visit_id", "request_id", "url", "headers", "top_level_url", "time_stamp", "is_in_phase1"]
     ]
+
+    
+    df_reqheaders.to_csv('/home/data/chensun/affi_project/purl/output/ads/crawl_test_buildGraph/df_reqheaders.csv', index=False)
+
     df_red = df_redirects[
         [
             "visit_id",
@@ -213,6 +219,7 @@ def get_redirect_edges(df_requests, df_redirects, df_responses):
             "is_in_phase1"
         ]
     ]
+    df_red.to_csv('/home/data/chensun/affi_project/purl/output/ads/crawl_test_buildGraph/df_red.csv', index=False)
 
     x1 = pd.merge(
         df_red,
@@ -220,12 +227,18 @@ def get_redirect_edges(df_requests, df_redirects, df_responses):
         left_on=["visit_id", "old_request_id", "old_request_url", "is_in_phase1"],
         right_on=["visit_id", "request_id", "url", "is_in_phase1"],
     )
+
+    x1.to_csv('/home/data/chensun/affi_project/purl/output/ads/crawl_test_buildGraph/x1.csv', index=False)
+
     x2 = pd.merge(
         x1,
         df_requests,
         left_on=["visit_id", "old_request_id", "new_request_url", "is_in_phase1"],
         right_on=["visit_id", "request_id", "url", "is_in_phase1"],
     )
+
+    x2.to_csv('/home/data/chensun/affi_project/purl/output/ads/crawl_test_buildGraph/x2.csv', index=False)
+
     x2 = x2.rename(
         columns={
             "headers_x": "respattr1",
@@ -233,6 +246,8 @@ def get_redirect_edges(df_requests, df_redirects, df_responses):
             "headers": "reqattr2",
         }
     )
+
+    x2.to_csv('/home/data/chensun/affi_project/purl/output/ads/crawl_test_buildGraph/x2_rename.csv', index=False)
     x3 = pd.merge(
         x2,
         df_responses,
@@ -240,12 +255,15 @@ def get_redirect_edges(df_requests, df_redirects, df_responses):
         right_on=["visit_id", "request_id", "url", "is_in_phase1"],
         how="outer",
     )
+    x3.to_csv('/home/data/chensun/affi_project/purl/output/ads/crawl_test_buildGraph/x3.csv', index=False)
 
     df_redirect_edges = (
         x3.groupby(["visit_id", "old_request_id"], as_index=False)
         .apply(process_redirects)
         .reset_index()
     )
+
+    df_redirect_edges.to_csv('/home/data/chensun/affi_project/purl/output/ads/crawl_test_buildGraph/df_redirect_edges.csv', index=False)
     df_redirect_edges = df_redirect_edges[
         [
             "visit_id",
@@ -264,7 +282,8 @@ def get_redirect_edges(df_requests, df_redirects, df_responses):
     df_redirect_edges["post_body_raw"] = pd.NA
 
     completed_ids = x3["key_x"].unique().tolist()
-    # df_redirect_edges.to_csv('/home/ubuntu/df_redirect_edges.csv', index=False)
+
+    df_redirect_edges.to_csv('/home/data/chensun/affi_project/purl/output/ads/crawl_test_buildGraph/df_redirect_edges_final.csv', index=False)
     # print("completed_ids: ", completed_ids)
     return df_redirect_edges, completed_ids
 
@@ -433,6 +452,14 @@ def get_cs_edges(df_requests, df_responses, call_stacks):
             raise ValueError("======== callstacks table is empty =========")
 
         else:
+            print("df_requests visit_id: ", df_requests['visit_id'].dtype)
+            print("df_responses visit_id: ", df_responses['visit_id'].dtype)
+            print("call_stacks visit_id: ", call_stacks['visit_id'].dtype)
+
+            print("df_requests request_id: ", df_requests['request_id'].dtype)
+            print("df_responses request_id: ", df_responses['request_id'].dtype)
+            print("call_stacks request_id: ", call_stacks['request_id'].dtype)
+
             df_merge = pd.merge(
                 df_requests, df_responses, on=["visit_id", "request_id"], how="inner"
             )
@@ -490,7 +517,7 @@ def get_cs_edges(df_requests, df_responses, call_stacks):
             completed_ids = df_merge["key"].unique().tolist()
 
     except ValueError as e:
-        print(e)  # Optionally log the exception message
+        print("Error occur during get_cs_edges: ", e)  # Optionally log the exception message
         df_cs_edges = pd.DataFrame()  # Create an empty DataFrame
         completed_ids = []  # Create an empty list for completed_ids
 

@@ -230,7 +230,7 @@ def classify(train, test, result_dir, tag, sample, log_pred_probability):
     test_mani = test.copy()
     clf = RandomForestClassifier(n_estimators=100)
     # clf = AdaBoostClassifier(n_estimators=100)
-    fields_to_remove = ["visit_id", "name", "label", "top_level_url", "Unnamed: 0"]
+    fields_to_remove = ["visit_id", "name", "label", "top_level_url", "Unnamed: 0", "Unnamed: 0_x"]
     df_feature_train = train_mani.drop(fields_to_remove, axis=1, errors="ignore")
     df_feature_test = test_mani.drop(fields_to_remove, axis=1, errors="ignore")
     #df_feature_train.to_csv("/home/data/chensun/affi_project/purl/output/affiliate/fullGraph/df_feature_train.csv")
@@ -465,7 +465,7 @@ def gird_search(df_labelled, df_labelled_holdout, result_dir, log_pred_probabili
     train_mani = df_labelled.copy()
     holdout_mani = df_labelled_holdout.copy()
 
-    fields_to_remove = ["visit_id", "name", "label", "party", "Unnamed: 0", 'top_level_url']
+    fields_to_remove = ["visit_id", "name", "label", "party", "Unnamed: 0", 'top_level_url', 'Unnamed: 0_x', 'Unnamed: 0_y']
     
     # Store the columns you want to retain
     train_retained = train_mani[["visit_id", "name", "top_level_url"]]
@@ -602,9 +602,9 @@ def pipeline(df, df_labels, result_dir):
     #df.drop(columns=["label_y"], inplace=True)
     #df.rename(columns={"label_x": "label"}, inplace=True)
 
-    df.drop(columns=["name_y"], inplace=True)
+    df.drop(columns=["name_y", "Unnamed: 0_x" ,"Unnamed: 0_y"], inplace=True)
     df.rename(columns={"name_x": "name"}, inplace=True)
-    #df.to_csv("/home/data/chensun/affi_project/purl/output/affiliate/fullGraph/test_2.csv")
+    df.to_csv("/home/data/chensun/affi_project/purl/output/test_2.csv")
 
     df = df.drop_duplicates()
     df = df.reset_index(drop=True)
@@ -696,10 +696,11 @@ if __name__ == "__main__":
     normal_folder = "../../output/normal"
     ads_folder = "../../output/ads"
     affiliate_folder = "../../output/affiliate"
-    RESULT_DIR_fullGraph_all = "../../output/results/01_24/fullGraph_all"
-    RESULT_DIR_fullGraph_simple = "../../output/results/01_24/fullGraph_simple" 
-    RESULT_DIR_phaseA_all = "../../output/results/01_24/phaseA_all"
-    RESULT_DIR_phaseA_simple = "../../output/results/01_24/phaseA_simple"
+
+    #RESULT_DIR_fullGraph_all = "../../output/results/01_31/fullGraph_all"
+    #RESULT_DIR_fullGraph_simple = "../../output/results/01_31/fullGraph_simple" 
+    RESULT_DIR_phaseA_all = "../../output/results/01_31/phaseA_all"
+    RESULT_DIR_phaseA_simple = "../../output/results/01_31/phaseA_simple"
     
     # get features
     df_ads_fullGraph_features_all = pd.DataFrame()
@@ -716,29 +717,34 @@ if __name__ == "__main__":
         for filename in os.listdir(each_crawl):
             # full graph
             if filename == "features_fullGraph.csv": 
+                continue
                 # Construct the full file path
-                file_path = os.path.join(each_crawl, filename)
-                df = pd.read_csv(file_path, on_bad_lines='skip')
-                df_ads_fullGraph_features_all = df_ads_fullGraph_features_all.append(df)
+                #file_path = os.path.join(each_crawl, filename)
+                #df = pd.read_csv(file_path, on_bad_lines='skip')
+                #df_ads_fullGraph_features_all = df_ads_fullGraph_features_all.append(df)
 
             # full graph simple
             elif filename == "features_fullGraph_simple.csv": 
+                continue
                 # Construct the full file path
-                file_path = os.path.join(each_crawl, filename)
-                df = pd.read_csv(file_path, on_bad_lines='skip')
-                df_ads_fullGraph_features_simple = df_ads_fullGraph_features_simple.append(df)
+                #file_path = os.path.join(each_crawl, filename)
+                #df = pd.read_csv(file_path, on_bad_lines='skip')
+                #df_ads_fullGraph_features_simple = df_ads_fullGraph_features_simple.append(df)
 
             # phase A 
             elif filename == "features_phase1.csv": 
                 # Construct the full file path
                 file_path = os.path.join(each_crawl, filename)
+                print(file_path)
                 df = pd.read_csv(file_path, on_bad_lines='skip')
                 df_ads_phaseA_features_all = df_ads_phaseA_features_all.append(df)
 
             # phase A simple
             elif filename == "features_phase1_simple.csv": 
                 # Construct the full file path
+                
                 file_path = os.path.join(each_crawl, filename)
+                print(file_path)
                 df = pd.read_csv(file_path, on_bad_lines='skip')
                 df_ads_phaseA_features_simple = df_ads_phaseA_features_simple.append(df)
             elif filename == "label.csv": 
@@ -765,23 +771,28 @@ if __name__ == "__main__":
 
     for crawl_id in os.listdir(affiliate_folder):
         if "unseen" in crawl_id:
-                print("\tIgnore this folder, since it is for testing")
-                continue
+            print("\tIgnore this folder, since it is for testing")
+            continue
+        if crawl_id == "crawl_1" or crawl_id == "crawl_5" or crawl_id == "crawl_6" or crawl_id == "crawl_10":
+            print("\tIgnore this folder, since it has to much Amazon link")
+            continue
         each_crawl =  os.path.join(affiliate_folder, crawl_id)
         for filename in os.listdir(each_crawl):
             # full graph
             if filename == "features_fullGraph.csv": 
                 # Construct the full file path
-                file_path = os.path.join(each_crawl, filename)
-                df = pd.read_csv(file_path, on_bad_lines='skip')
-                df_affiliate_fullGraph_features_all = df_affiliate_fullGraph_features_all.append(df)
+                continue
+                #file_path = os.path.join(each_crawl, filename)
+                #df = pd.read_csv(file_path, on_bad_lines='skip')
+                #df_affiliate_fullGraph_features_all = df_affiliate_fullGraph_features_all.append(df)
 
             # full graph simple
             elif filename == "features_fullGraph_simple.csv": 
+                continue
                 # Construct the full file path
-                file_path = os.path.join(each_crawl, filename)
-                df = pd.read_csv(file_path, on_bad_lines='skip')
-                df_affiliate_fullGraph_features_simple = df_affiliate_fullGraph_features_simple.append(df)
+                #file_path = os.path.join(each_crawl, filename)
+                #df = pd.read_csv(file_path, on_bad_lines='skip')
+                #df_affiliate_fullGraph_features_simple = df_affiliate_fullGraph_features_simple.append(df)
 
             # phase A 
             elif filename == "features_phase1.csv": 
@@ -814,16 +825,17 @@ if __name__ == "__main__":
     df_labels_fullGraph = pd.DataFrame()
     df_labels_fullGraph = pd.concat([df_ads_labels,df_affiliate_labels])
 
-    print("Classifying the fullGraph all features")
-    df_features_fullGraph_all = pd.DataFrame()
-    df_features_fullGraph_all = pd.concat([df_ads_fullGraph_features_all,df_affiliate_fullGraph_features_all])
-    pipeline(df_features_fullGraph_all, df_labels_fullGraph, RESULT_DIR_fullGraph_all)
+    
+    #print("Classifying the fullGraph all features")
+    #df_features_fullGraph_all = pd.DataFrame()
+    #df_features_fullGraph_all = pd.concat([df_ads_fullGraph_features_all,df_affiliate_fullGraph_features_all])
+    #pipeline(df_features_fullGraph_all, df_labels_fullGraph, RESULT_DIR_fullGraph_all)
 
 
-    print("Classifying the fullGraph simpler features")
-    df_features_fullGraph_simple = pd.DataFrame()
-    df_features_fullGraph_simple = pd.concat([df_ads_fullGraph_features_simple,df_affiliate_fullGraph_features_simple])
-    pipeline(df_features_fullGraph_simple, df_labels_fullGraph, RESULT_DIR_fullGraph_simple)
+    #print("Classifying the fullGraph simpler features")
+    #df_features_fullGraph_simple = pd.DataFrame()
+    #df_features_fullGraph_simple = pd.concat([df_ads_fullGraph_features_simple,df_affiliate_fullGraph_features_simple])
+    #pipeline(df_features_fullGraph_simple, df_labels_fullGraph, RESULT_DIR_fullGraph_simple)
 
 
     print("Classifying the phaseA all features")

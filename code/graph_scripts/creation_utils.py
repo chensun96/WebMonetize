@@ -5,38 +5,502 @@ import pymysql
 import sqlite3
 import ast
 from urllib.parse import urlparse
+import csv
+import os
+import json
+from adblockparser import AdblockRules
+import tld
+from tld import get_fld
+
+
+def extract_domain(url):
+        try:
+            u = tldextract.extract(url)
+            return u.domain + "." + u.suffix
+        except:
+            return None
+
+def download_lists(FILTERLIST_DIR):
+    """
+    Function to download the lists used in AdGraph.
+    Args:
+        FILTERLIST_DIR: Path of the output directory to which filter lists should be written.
+    Returns:
+        Nothing, writes the lists to a directory.
+    This functions does the following:
+    1. Sends HTTP requests for the lists used in AdGraph.
+    2. Writes to an output directory.
+    """
+
+    num_retries = 5
+    session = requests.Session()
+    retry = Retry(total=num_retries, connect=num_retries, read=num_retries, backoff_factor=0.5)
+    adapter = HTTPAdapter(max_retries=retry, pool_connections=100, pool_maxsize=200)
+    session.mount('http://', adapter)
+    session.mount('https://', adapter)
+
+    request_headers_https = {
+        "Connection": "keep-alive",
+        "User-Agent": "Mozilla/5.0 (Windows NT 6.1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.114 Safari/537.36",
+        "Accept": "*/*",
+        "Accept-Encoding": "gzip, deflate, br"
+    }
+    # "Accept-Language": "en-US,en;q=0.9"
+
+    request_headers_http = {
+        "Connection": "keep-alive",
+        "User-Agent": "Mozilla/5.0 (Windows NT 6.1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.114 Safari/537.36",
+        "Accept": "*/*"
+    }
+
+    raw_lists = {
+        'easylist': 'https://easylist.to/easylist/easylist.txt',
+        'easyprivacy': 'https://easylist.to/easylist/easyprivacy.txt',
+        'antiadblock': 'https://raw.github.com/reek/anti-adblock-killer/master/anti-adblock-killer-filters.txt',
+        'blockzilla': 'https://raw.githubusercontent.com/annon79/Blockzilla/master/Blockzilla.txt',
+        'fanboyannoyance': 'https://easylist.to/easylist/fanboy-annoyance.txt',
+        'fanboysocial': 'https://easylist.to/easylist/fanboy-social.txt',
+        'peterlowe': 'http://pgl.yoyo.org/adservers/serverlist.php?hostformat=adblockplus&mimetype=plaintext',
+        'squid': 'http://www.squidblacklist.org/downloads/sbl-adblock.acl',
+        'warning': 'https://easylist-downloads.adblockplus.org/antiadblockfilters.txt',
+    }
+    for listname, url in raw_lists.items():
+        with open(os.path.join(FILTERLIST_DIR, "%s.txt" % listname), 'wb') as f:
+            # f.write(requests.get(url).content)
+            try:
+                response = session.get(url, timeout=45, headers=request_headers_https)
+                response_content = response.content
+                f.write(response_content)
+            except requests.exceptions.ConnectionError as e1:
+                continue
+
+
+def read_file_newline_stripped(fname):
+    try:
+        with open(fname) as f:
+            lines = f.readlines()
+            lines = [x.strip() for x in lines]
+        return lines
+    except:
+        return []
+
+
+def setup_filterlists():
+    #FILTERLIST_DIR = "filterlists"
+
+    #if not os.path.isdir(FILTERLIST_DIR):
+    #    os.makedirs(FILTERLIST_DIR)
+    #download_lists(FILTERLIST_DIR)
+    
+     
+    FILTERLIST_DIR = os.path.abspath("../code/filterlists")
+    # print("FILTERLIST_DIR: ", FILTERLIST_DIR)
+    filterlist_rules = {}
+    filterlists = os.listdir(FILTERLIST_DIR)
+
+    for fname in filterlists:
+        rule_dict = {}
+        rules = read_file_newline_stripped(os.path.join(FILTERLIST_DIR, fname))
+        rule_dict['script'] = AdblockRules(rules, use_re2=False, max_mem=1024 * 1024 * 1024,
+                                           supported_options=['script', 'domain', 'subdocument'],
+                                           skip_unsupported_rules=False)
+        rule_dict['script_third'] = AdblockRules(rules, use_re2=False, max_mem=1024 * 1024 * 1024,
+                                                 supported_options=['third-party', 'script', 'domain', 'subdocument'],
+                                                 skip_unsupported_rules=False)
+        rule_dict['image'] = AdblockRules(rules, use_re2=False, max_mem=1024 * 1024 * 1024,
+                                          supported_options=['image', 'domain', 'subdocument'],
+                                          skip_unsupported_rules=False)
+        rule_dict['image_third'] = AdblockRules(rules, use_re2=False, max_mem=1024 * 1024 * 1024,
+                                                supported_options=['third-party', 'image', 'domain', 'subdocument'],
+                                                skip_unsupported_rules=False)
+        rule_dict['css'] = AdblockRules(rules, use_re2=False, max_mem=1024 * 1024 * 1024,
+                                        supported_options=['stylesheet', 'domain', 'subdocument'],
+                                        skip_unsupported_rules=False)
+        rule_dict['css_third'] = AdblockRules(rules, use_re2=False, max_mem=1024 * 1024 * 1024,
+                                              supported_options=['third-party', 'stylesheet', 'domain', 'subdocument'],
+                                              skip_unsupported_rules=False)
+        rule_dict['xmlhttp'] = AdblockRules(rules, use_re2=False, max_mem=1024 * 1024 * 1024,
+                                            supported_options=['xmlhttprequest', 'domain', 'subdocument'],
+                                            skip_unsupported_rules=False)
+        rule_dict['xmlhttp_third'] = AdblockRules(rules, use_re2=False, max_mem=1024 * 1024 * 1024,
+                                                  supported_options=['third-party', 'xmlhttprequest', 'domain',
+                                                                     'subdocument'], skip_unsupported_rules=False)
+        rule_dict['third'] = AdblockRules(rules, use_re2=False, max_mem=1024 * 1024 * 1024,
+                                          supported_options=['third-party', 'domain', 'subdocument'],
+                                          skip_unsupported_rules=False)
+        rule_dict['domain'] = AdblockRules(rules, use_re2=False, max_mem=1024 * 1024 * 1024,
+                                           supported_options=['domain', 'subdocument'], skip_unsupported_rules=False)
+        filterlist_rules[fname] = rule_dict
+    return filterlists, filterlist_rules
+
+
+def match_url(domain_top_level, current_domain, current_url, resource_type, rules_dict):
+    try:
+        if domain_top_level == current_domain:
+            third_party_check = False
+        else:
+            third_party_check = True
+        if resource_type == 'sub_frame':
+            subdocument_check = True
+        else:
+            subdocument_check = False
+        if resource_type == 'script':
+            if third_party_check:
+                rules = rules_dict['script_third']
+                options = {'third-party': True, 'script': True, 'domain': domain_top_level,
+                           'subdocument': subdocument_check}
+            else:
+                rules = rules_dict['script']
+                options = {'script': True, 'domain': domain_top_level, 'subdocument': subdocument_check}
+        elif resource_type == 'image' or resource_type == 'imageset':
+            if third_party_check:
+                rules = rules_dict['image_third']
+                options = {'third-party': True, 'image': True, 'domain': domain_top_level,
+                           'subdocument': subdocument_check}
+            else:
+                rules = rules_dict['image']
+                options = {'image': True, 'domain': domain_top_level, 'subdocument': subdocument_check}
+        elif resource_type == 'stylesheet':
+            if third_party_check:
+                rules = rules_dict['css_third']
+                options = {'third-party': True, 'stylesheet': True, 'domain': domain_top_level,
+                           'subdocument': subdocument_check}
+            else:
+                rules = rules_dict['css']
+                options = {'stylesheet': True, 'domain': domain_top_level, 'subdocument': subdocument_check}
+        elif resource_type == 'xmlhttprequest':
+            if third_party_check:
+                rules = rules_dict['xmlhttp_third']
+                options = {'third-party': True, 'xmlhttprequest': True, 'domain': domain_top_level,
+                           'subdocument': subdocument_check}
+            else:
+                rules = rules_dict['xmlhttp']
+                options = {'xmlhttprequest': True, 'domain': domain_top_level, 'subdocument': subdocument_check}
+        elif third_party_check:
+            rules = rules_dict['third']
+            options = {'third-party': True, 'domain': domain_top_level, 'subdocument': subdocument_check}
+        else:
+            rules = rules_dict['domain']
+            options = {'domain': domain_top_level, 'subdocument': subdocument_check}
+        return rules.should_block(current_url, options)
+    except Exception as e:
+        ### print('Exception encountered', e)
+        ### print('top url', domain_top_level)
+        ### print('current url', current_domain)
+        return False
+
+
+def read_url_classification(crawl_agent_id, mount_dir):
+    classification_dir = os.path.join(mount_dir, "adurl-classification")
+    if not (os.path.exists(classification_dir)):
+        os.makedirs(classification_dir)
+        return None
+    classification_file = os.path.join(classification_dir, f"crawl-{crawl_agent_id}.csv")
+    if not (os.path.exists(classification_file)):
+        return None
+    df = pd.read_csv(classification_file)
+    return df
+
+
+def write_url_classification(crawl_agent_id, mount_dir, url, label):
+    classification_file = os.path.join(mount_dir, "adurl-classification", f"crawl-{crawl_agent_id}.csv")
+    if not (os.path.exists(classification_file)):
+        f = open(classification_file, 'w')
+        writer = csv.writer(f)
+        header = ["url", "label"]
+        writer.writerow(header)
+        f.close()
+    f = open(classification_file, 'a+')
+    writer = csv.writer(f)
+    row = [url, label]
+    writer.writerow(row)
+    f.close()
+    return
+
+
+def label_data(domain_url, script_url):
+    '''
+    # top_domain = the website being visited
+    # script_domain = domain of iframe url
+    # script_url = url of iframe
+    # resource_type = subframe, image, script
+    '''
+
+    #url_df = read_url_classification(crawl_agent_id, mount_dir)
+    #if not (url_df is None):
+    #    try:
+    #        data_label = bool(url_df[url_df["url"] == str(script_url)]["label"])
+    #        return data_label
+    #    except:
+    #        data_label = False
+    #        pass
+    #else:
+    #    data_label = False
+
+    #global global_curr_domain, global_url_cnt;
+    #global_url_cnt += 1
+    #top_domain = global_curr_domain
+
+    filterlists, filterlist_rules = setup_filterlists()
+    for fl in filterlists:
+        for resource_type in ["sub_frame", "script", "image"]:
+            list_label = match_url(domain_url, get_fld(script_url), script_url, resource_type, filterlist_rules[fl])
+            data_label = list_label
+            if data_label == True:
+                break
+        if data_label == True:
+            break
+    #print(domain_url, data_label)
+
+    #write_url_classification(crawl_agent_id, mount_dir, script_url, data_label)
+    return data_label
+
+def unique_ad_tab_ids(conn, visit_id):
+
+    first_urls = {}
+    unique_groups = []
+
+    # Find the parent site url
+    query = f"SELECT request_id, url FROM http_requests WHERE visit_id = {visit_id} ORDER BY request_id ASC LIMIT 1"
+    result = pd.read_sql_query(query, conn)
+    if result.empty or 'url' not in result:
+        # Handle the case where the result is empty
+        print("No data found for the given visit_id. Continue")
+        return None
+    domain_url = result['url'].iloc[0]
+    print("domain_url: ", domain_url)
+
+    df_http_requests_each_tab = pd.read_sql_query("SELECT visit_id, url, tab_id, request_id, "
+                                                    "headers, top_level_url, resource_type, "
+                                                    f"time_stamp, post_body, post_body_raw from http_requests where visit_id = {visit_id}", conn)
+    
+    unique_tab_ids_count = df_http_requests_each_tab['tab_id'].nunique()
+    print(f"Number of unique tab_ids: {unique_tab_ids_count}")
+    if unique_tab_ids_count ==  1:
+        print("No ads in this {visit_id}", visit_id)
+        return
+    else:
+        groups = df_http_requests_each_tab.groupby(['visit_id', 'tab_id'])
+        for (visit_id, tab_id), group_data in groups:
+            if tab_id == -1:
+                continue
+
+            print(f"Visit ID: {visit_id}, Tab ID: {tab_id}")
+            group_data_sorted = group_data.sort_values(by='request_id')
+            first_row_url = group_data_sorted.iloc[0]['url']
+            if first_row_url == domain_url:
+                continue
+            else:
+                # deduplicate groups based on the uniqueness of the first row's URL
+                if first_row_url in first_urls.values():
+                    print("Duplicate link, ignore")
+                # check if the url is ads
+                elif not(label_data(domain_url, first_row_url)):
+                    print("URL is not ad URL, ignore")
+                else:
+                    first_urls[(visit_id, tab_id)] = first_row_url
+                    unique_groups.append((visit_id, tab_id, group_data_sorted))
+                    print("URL is ad unique URL, include it")
+
+    print(f"Number of ads in {domain_url} is {len(unique_groups)}")
+    unique_ad_tab_ids = [tab_id for _, tab_id, _ in unique_groups]
+    #print(unique_ad_tab_ids)
+    return unique_ad_tab_ids,  first_urls
+
+def get_max_min_request_id(df_http_requests, df_http_responses, df_http_redirects):
+    # Convert request_id and old_request_id columns to numeric (integer) explicitly
+    df_http_requests['request_id'] = pd.to_numeric(df_http_requests['request_id'], errors='coerce')
+    df_http_responses['request_id'] = pd.to_numeric(df_http_responses['request_id'], errors='coerce')
+    df_http_redirects['old_request_id'] = pd.to_numeric(df_http_redirects['old_request_id'], errors='coerce')
+
+    # Now proceed to find max and min as before
+    max_request_id_http_requests = df_http_requests['request_id'].max()
+    min_request_id_http_requests = df_http_requests['request_id'].min()
+
+    max_request_id_http_responses = df_http_responses['request_id'].max()
+    min_request_id_http_responses = df_http_responses['request_id'].min()
+
+    max_request_id_http_redirects = df_http_redirects['old_request_id'].max()
+    min_request_id_http_redirects = df_http_redirects['old_request_id'].min()
+
+    # Print the results
+    #print(f"HTTP Requests - Max Request ID: {max_request_id_http_requests}, Min Request ID: {min_request_id_http_requests}")
+    #print(f"HTTP Responses - Max Request ID: {max_request_id_http_responses}, Min Request ID: {min_request_id_http_responses}")
+    #print(f"HTTP Redirects (Old Request ID) - Max: {max_request_id_http_redirects}, Min: {min_request_id_http_redirects}")
+
+    # Calculate overall max and min request_id
+    overall_max_request_id = max(max_request_id_http_requests, max_request_id_http_responses, max_request_id_http_redirects)
+    overall_min_request_id = min(min_request_id_http_requests, min_request_id_http_responses, min_request_id_http_redirects)
+
+    return int(overall_max_request_id), int(overall_min_request_id)
+
+
+def read_tables_for_ads(conn, visit_id, tab_id):
+
+    df_http_requests = pd.read_sql_query("SELECT visit_id, request_id, "
+                                         "url, headers, top_level_url, resource_type, "
+                                         f"time_stamp, post_body, post_body_raw from http_requests where visit_id = {visit_id} AND tab_id = {tab_id}",
+                                         conn)
+    df_http_responses = pd.read_sql_query("SELECT visit_id, request_id, "
+                                          "url, headers, response_status, time_stamp, content_hash "
+                                          f" from http_responses where visit_id = {visit_id} AND tab_id = {tab_id}", conn)
+    df_http_redirects = pd.read_sql_query("SELECT visit_id, old_request_id, "
+                                          "old_request_url, new_request_url, response_status, "
+                                          f"headers, time_stamp from http_redirects where visit_id = {visit_id} AND tab_id = {tab_id}", conn)
+
+    javascript = pd.read_sql_query(
+        "SELECT visit_id, script_url, script_line, script_loc_eval, top_level_url, document_url, symbol, call_stack, operation,"
+        f" arguments, attributes, value, time_stamp from javascript where visit_id = {visit_id} AND tab_id = {tab_id}", conn)
+
+    # call_stack table doesn't have tab_id.
+    # Use request_id to define the range of data
+    max_request_id, min_request_id = get_max_min_request_id(df_http_requests, df_http_responses, df_http_redirects)
+
+    query = f"""
+        SELECT visit_id, request_id, call_stack
+        FROM callstacks
+        WHERE visit_id = {visit_id} AND CAST(request_id AS INT) BETWEEN {min_request_id} AND {max_request_id}
+    """
+    call_stacks = pd.read_sql_query(query, conn)
+    call_stacks['request_id'] = call_stacks['request_id'].astype(str)
+
+    return df_http_requests, df_http_responses, df_http_redirects, call_stacks, javascript, max_request_id, min_request_id
 
 
 def read_tables(conn, visit_id):
-
      
     df_http_requests = pd.read_sql_query("SELECT visit_id, request_id, "
                                          "url, headers, top_level_url, resource_type, "
-                                         f"time_stamp, post_body, post_body_raw from http_requests where {visit_id} = visit_id", conn)
+                                         f"time_stamp, post_body, post_body_raw from http_requests where visit_id = {visit_id}", conn)
     df_http_responses = pd.read_sql_query("SELECT visit_id, request_id, "
                                           "url, headers, response_status, time_stamp, content_hash "
-                                          f" from http_responses where {visit_id} = visit_id", conn)
+                                          f" from http_responses where visit_id = {visit_id}", conn)
     df_http_redirects = pd.read_sql_query("SELECT visit_id, old_request_id, "
                                           "old_request_url, new_request_url, response_status, "
-                                          f"headers, time_stamp from http_redirects where {visit_id} = visit_id", conn)
+                                          f"headers, time_stamp from http_redirects where visit_id = {visit_id}", conn)
     call_stacks = pd.read_sql_query(
-        f"SELECT visit_id, request_id, call_stack from callstacks where {visit_id} = visit_id", conn)
+        f"SELECT visit_id, request_id, call_stack from callstacks where visit_id = {visit_id}", conn)
     javascript = pd.read_sql_query("SELECT visit_id, script_url, script_line, script_loc_eval, top_level_url, document_url, symbol, call_stack, operation,"
-                                   f" arguments, attributes, value, time_stamp from javascript where {visit_id} = visit_id", conn)
+                                   f" arguments, attributes, value, time_stamp from javascript where visit_id = {visit_id}", conn)
     return df_http_requests, df_http_responses, df_http_redirects, call_stacks, javascript
+
+
+
+def get_last_redirect_request_id_for_ads(conn, visit_id, tab_id):
+    first_request_id = 0
+
+    query = f"SELECT top_level_url FROM http_requests WHERE visit_id = {visit_id} AND tab_id = {tab_id} ORDER BY request_id DESC LIMIT 1"
+    result = pd.read_sql_query(query, conn)
+
+    if result.empty or 'top_level_url' not in result:
+        # Handle the case where the result is empty
+        print("No data found for the given visit_id. Continue")
+        return None
+    last_url = result['top_level_url'].iloc[0]
+
+    domain = extract_domain(last_url)
+
+    # Find the first row with the same domain
+    query2 = f"SELECT request_id, top_level_url FROM http_requests WHERE visit_id = {visit_id} AND tab_id = {tab_id} ORDER BY request_id ASC"
+    result2 = pd.read_sql_query(query2, conn)
+    for index, row in result2.iterrows():
+        if extract_domain(row['top_level_url']) == domain:
+            # print("Domain: " + domain)
+            # print("\tPhase A end with request ID: ", row['request_id'])
+            first_request_id = row['request_id']
+            break
+    return first_request_id
+
+
+def get_last_redirect_timestamp_for_ads(conn, visit_id, tab_id):
+    first_time_stamp = ""
+
+    # Function to extract domain from URL
+
+    query = f"SELECT top_level_url FROM javascript WHERE visit_id = {visit_id} AND tab_id = {tab_id} ORDER BY time_stamp DESC LIMIT 1"
+    result = pd.read_sql_query(query, conn)
+
+    if result.empty or 'top_level_url' not in result:
+        # Handle the case where the result is empty
+        print("No data found in javascript table for the given visit_id. Continue")
+        return None
+
+    last_url = result['top_level_url'].iloc[0]
+
+    domain = extract_domain(last_url)
+
+    # Find the first row with the same domain
+    query2 = f"SELECT time_stamp, top_level_url FROM javascript WHERE visit_id = {visit_id} AND tab_id = {tab_id} ORDER BY time_stamp ASC"
+    result2 = pd.read_sql_query(query2, conn)
+    for index, row in result2.iterrows():
+        if extract_domain(row['top_level_url']) == domain:
+            # print("Domain: " + domain)
+            # print("\tPhase A end with request ID: ", row['request_id'])
+            first_time_stamp = row['time_stamp']
+            break
+    return first_time_stamp
+
+
+def read_tables_phase1_for_ads(conn, visit_id, tab_id, max_request_id, min_request_id):
+    request_id = get_last_redirect_request_id_for_ads(conn, visit_id, tab_id)
+    time_stamp = get_last_redirect_timestamp_for_ads(conn, visit_id, tab_id)
+
+    # Reading and filtering tables
+    df_http_requests_phase1 = pd.read_sql_query(
+        f"SELECT visit_id, request_id, url, headers, top_level_url, "
+        f"resource_type, time_stamp, post_body, post_body_raw "
+        f"FROM http_requests WHERE visit_id = {visit_id} AND tab_id = {tab_id} AND CAST(request_id AS INT) <= {request_id}", conn)
+    
+    df_http_requests_phase1['request_id'] = df_http_requests_phase1['request_id'].astype(str)
+
+    df_http_responses_phase1 = pd.read_sql_query(
+        f"SELECT visit_id, request_id, url, headers, response_status, "
+        f"time_stamp, content_hash FROM http_responses WHERE visit_id = {visit_id} AND tab_id = {tab_id} AND CAST(request_id AS INT) <= {request_id}",
+        conn)
+    
+    df_http_responses_phase1['request_id'] = df_http_responses_phase1['request_id'].astype(str)
+
+    df_http_redirects_phase1 = pd.read_sql_query(
+        f"SELECT visit_id, old_request_id, old_request_url, new_request_url, "
+        f"response_status, headers, time_stamp FROM http_redirects WHERE visit_id = {visit_id} AND tab_id = {tab_id} AND CAST(old_request_id AS INT) <= {request_id}",
+        conn)
+    
+    df_http_redirects_phase1['old_request_id'] = df_http_redirects_phase1['old_request_id'].astype(str)
+
+    javascript_phase1 = pd.read_sql_query(
+        f"SELECT visit_id, script_url, script_line, script_loc_eval, top_level_url, "
+        f"document_url, symbol, call_stack, operation, arguments, attributes, value, time_stamp "
+        f"FROM javascript WHERE visit_id = {visit_id} AND tab_id = {tab_id}", conn)
+    
+
+    # Convert the 'time_stamp' column to datetime objects
+    javascript_phase1['time_stamp'] = pd.to_datetime(javascript_phase1['time_stamp'])
+
+    # Convert the 'time_cutoff' string to a datetime object
+    time_stamp_datetime = pd.to_datetime(time_stamp)
+
+    # Filter the DataFrame based on the time cutoff
+    javascript_phase1 = javascript_phase1[javascript_phase1['time_stamp'] <= time_stamp_datetime]
+    javascript_phase1['time_stamp'] = javascript_phase1['time_stamp'].astype(str)
+
+
+    #print(javascript_phase1['time_stamp'])
+
+    query = f"""
+            SELECT visit_id, request_id, call_stack
+            FROM callstacks
+            WHERE visit_id = {visit_id} AND CAST(request_id AS INT) BETWEEN {min_request_id} AND {max_request_id} AND CAST(request_id AS INT) <= {request_id}
+        """
+    call_stacks_phase1 = pd.read_sql_query(query, conn)
+    call_stacks_phase1['request_id'] = call_stacks_phase1['request_id'].astype(str)
+
+    return df_http_requests_phase1, df_http_responses_phase1, df_http_redirects_phase1, call_stacks_phase1, javascript_phase1
+
 
 """
 def get_last_redirect_request_id(conn, visit_id):
     query = f"SELECT referrer, request_id FROM http_requests WHERE visit_id = {visit_id} AND referrer != '' AND referrer IS NOT NULL ORDER BY request_id ASC"
     rows = pd.read_sql_query(query, conn)
-
-    # Function to extract domain from URL
-    def extract_domain(url):
-        try:
-            u = tldextract.extract(url)
-            return u.domain+"."+u.suffix
-        except:
-            return None
 
     # Process the rows
     last_domain = None
@@ -64,16 +528,13 @@ def get_last_redirect_request_id(conn, visit_id):
 def get_last_redirect_request_id(conn, visit_id):
     first_request_id = 0
 
-    # Function to extract domain from URL
-    def extract_domain(url):
-        try:
-            u = tldextract.extract(url)
-            return u.domain + "." + u.suffix
-        except:
-            return None
-
     query = f"SELECT top_level_url FROM http_requests WHERE visit_id = {visit_id} ORDER BY request_id DESC LIMIT 1"
     result = pd.read_sql_query(query, conn)
+
+    if result.empty or 'top_level_url' not in result:
+        # Handle the case where the result is empty
+        print("No data found for the given visit_id. Continue")
+        return None
     last_url = result['top_level_url'].iloc[0]
 
     domain = extract_domain(last_url)
@@ -93,14 +554,15 @@ def get_last_redirect_timestamp(conn, visit_id):
     first_time_stamp = ""
 
     # Function to extract domain from URL
-    def extract_domain(url):
-        try:
-            u = tldextract.extract(url)
-            return u.domain + "." + u.suffix
-        except:
-            return None
+    
     query = f"SELECT top_level_url FROM javascript WHERE visit_id = {visit_id} ORDER BY time_stamp DESC LIMIT 1"
     result = pd.read_sql_query(query, conn)
+
+    if result.empty or 'top_level_url' not in result:
+        # Handle the case where the result is empty
+        print("No data found in javascript table for the given visit_id. Continue")
+        return None
+    
     last_url = result['top_level_url'].iloc[0]
 
     domain = extract_domain(last_url)
@@ -159,12 +621,17 @@ def read_tables_phase1(conn, visit_id):
         f"SELECT visit_id, request_id, url, headers, top_level_url, "
                                          f"resource_type, time_stamp, post_body, post_body_raw "
                                          f"FROM http_requests WHERE visit_id = {visit_id} AND CAST(request_id AS INT) <= {request_id}", conn)
+    df_http_requests_phase1['request_id'] = df_http_requests_phase1['request_id'].astype(str)
+
     df_http_responses_phase1 = pd.read_sql_query(
         f"SELECT visit_id, request_id, url, headers, response_status, "
                                           f"time_stamp, content_hash FROM http_responses WHERE visit_id = {visit_id} AND CAST(request_id AS INT) <= {request_id}", conn)
+    df_http_responses_phase1['request_id'] = df_http_responses_phase1['request_id'].astype(str)
+
     df_http_redirects_phase1 = pd.read_sql_query(
         f"SELECT visit_id, old_request_id, old_request_url, new_request_url, "
                                           f"response_status, headers, time_stamp FROM http_redirects WHERE visit_id = {visit_id} AND CAST(old_request_id AS INT) <= {request_id}", conn)
+    df_http_redirects_phase1['old_request_id'] = df_http_redirects_phase1['old_request_id'].astype(str)
 
     javascript_phase1 = pd.read_sql_query(
         f"SELECT visit_id, script_url, script_line, script_loc_eval, top_level_url, "
@@ -176,13 +643,15 @@ def read_tables_phase1(conn, visit_id):
     time_stamp_datetime = pd.to_datetime(time_stamp)
 
     javascript_phase1 = javascript_phase1[javascript_phase1['time_stamp'] <= time_stamp_datetime]
+    javascript_phase1['time_stamp'] = javascript_phase1['time_stamp'].astype(str)
     
     #javascript_cookies_phase1 = pd.read_sql_query(
     #    f"SELECT * FROM javascript_cookies WHERE visit_id = {visit_id} AND time_stamp < '{time_cutoff}'", conn)
 
     call_stacks_phase1 = pd.read_sql_query(
-        f"SELECT visit_id, request_id, call_stack from callstacks where {visit_id} = visit_id AND CAST(request_id AS INT) <= {request_id}", conn)
-
+        f"SELECT visit_id, request_id, call_stack from callstacks where visit_id = {visit_id} AND CAST(request_id AS INT) <= {request_id}", conn)
+    call_stacks_phase1['request_id'] = call_stacks_phase1['request_id'].astype(str)
+    
     return df_http_requests_phase1, df_http_responses_phase1, df_http_redirects_phase1, call_stacks_phase1, javascript_phase1
 
 
@@ -199,29 +668,65 @@ def get_final_page_url(conn, visit_id):
     return df_url.iloc[0]['url']
 
 
+def get_final_page_url_for_ads(conn, visit_id, tab_id):
+    request_id = get_last_redirect_request_id(conn, visit_id)
+    query = f"""
+    SELECT url, time_stamp 
+    FROM http_requests 
+    WHERE visit_id = {visit_id} AND tab_id = {tab_id} AND CAST(request_id AS INT) = {request_id} 
+    ORDER BY time_stamp DESC 
+    LIMIT 1
+    """
+    df_url = pd.read_sql_query(query, conn)
+    return df_url.iloc[0]['url']
+
+
 def add_marker_column(
         df_requests, df_responses, df_redirects, call_stacks, javascript,
         df_requests_phase1, df_responses_phase1, df_redirects_phase1, call_stacks_phase1, javascript_phase1
         ):
     # Create a boolean mask to mark rows that are also in df_http_requests_phase1
+    #print("df_requests request_id: ", df_requests['request_id'].dtype)
+    #print("df_responses request_id: ", df_responses['request_id'].dtype)
+    #print("df_redirects request_id: ", df_redirects['old_request_id'].dtype)
+    #print("call_stacks request_id: ", call_stacks['request_id'].dtype)
+    #print("javascript time_stamp: ", javascript['time_stamp'].dtype)
+
+
+  
+    #print("df_requests_phase1 request_id: ", df_requests_phase1['request_id'].dtype)
+    #print("df_responses_phase1 request_id: ", df_responses_phase1['request_id'].dtype)
+    #print("df_redirects_phase1 request_id: ", df_redirects_phase1['old_request_id'].dtype)
+    #print("call_stacks_phase1 request_id: ", call_stacks_phase1['request_id'].dtype)
+    #print("javascript_phase1 time_stamp: ", javascript_phase1['time_stamp'].dtype)
+
     if not df_requests_phase1.empty:
         df_requests['is_in_phase1'] = df_requests['request_id'].isin(df_requests_phase1['request_id'])
+        #print("len of true in df_requests: ", df_requests[df_requests['is_in_phase1']].shape[0])
     else:
         df_requests['is_in_phase1'] = [False] * len(df_requests)
+
     if not df_responses_phase1.empty:
         df_responses['is_in_phase1'] = df_responses['request_id'].isin(df_responses_phase1['request_id'])
+        #print("len of true in df_responses: ", df_responses[df_responses['is_in_phase1']].shape[0])
     else:
         df_responses['is_in_phase1'] = [False] * len(df_responses)
+
     if not df_redirects_phase1.empty:
         df_redirects['is_in_phase1'] = df_redirects['old_request_id'].isin(df_redirects_phase1['old_request_id'])
+        #print("len of true in df_redirects: ", df_redirects[df_redirects['is_in_phase1']].shape[0])
     else:
         df_redirects['is_in_phase1'] = [False] * len(df_redirects)
+
     if not javascript_phase1.empty:
         javascript['is_in_phase1'] = javascript['time_stamp'].isin(javascript_phase1['time_stamp'])
+        #print("len of true in javascript: ",javascript[javascript['is_in_phase1']].shape[0])
     else:
         javascript['is_in_phase1'] = [False] * len(javascript)
+
     if not call_stacks_phase1.empty:
         call_stacks['is_in_phase1'] = call_stacks['request_id'].isin(call_stacks_phase1['request_id'])
+        #print("len of true in call_stacks: ",call_stacks[call_stacks['is_in_phase1']].shape[0])
     else:
         call_stacks['is_in_phase1'] = [False] * len(call_stacks)
 
