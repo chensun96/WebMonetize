@@ -87,7 +87,7 @@ def report_true_pred(
     with open(fname, "a") as f:
         f.write(
             np.array_str(
-                confusion_matrix(y_true, y_pred, labels=["ads", "affiliate"])
+                confusion_matrix(y_true, y_pred, labels=["others", "affiliate"])
             )
             + "\n\n"
         )
@@ -148,7 +148,7 @@ def classify(df, result_dir, file_name, model_name):
     recall = recall_score(y_true, y_pred, average='binary', pos_label='affiliate')  # adjust 'affiliate' if needed
 
     # Calculate confusion matrix
-    conf_matrix = confusion_matrix(y_true, y_pred, labels=["ads", "affiliate"])
+    conf_matrix = confusion_matrix(y_true, y_pred, labels=["others", "affiliate"])
 
     # Save metrics and confusion matrix to a file
     metrics_file = os.path.join(result_dir, "classification_metrics.txt")
@@ -161,7 +161,7 @@ def classify(df, result_dir, file_name, model_name):
 
     # predict the probabilities
     y_pred_proba = clf.predict_proba(df_features)
-    print(clf.classes_)  # e.g., ['ads' 'affiliate']
+    print(clf.classes_)  # e.g., ['others' 'affiliate']
 
     # add the predicted labels to the dataframe
     df["clabel"] = y_pred
@@ -190,17 +190,17 @@ if __name__ == "__main__":
     
     #features_types = ["phase1", "phase1_simple"]
     features_types = ["phase1"]
-    #graph_types = ["affiliate", "ads"]
+    #graph_types = ["affiliate", "others"]
     num_trials = 100
     for iteration in range(num_trials):
  
         for feature_type in features_types:
-            MODEL_NAME = f"../../output/results/02_21_uniform_Kfold_CV/{feature_type}/{iteration}/best_model.sav"
-            RESULT_DIR = f"../../output/results/02_21_uniform_Kfold_CV/{feature_type}/{iteration}/with_model"
+            MODEL_NAME = f"../../output/results/02_28_uniform_Kfold_CV_AFF_OTHERS_allF/{feature_type}/{iteration}/best_model.sav"
+            RESULT_DIR = f"../../output/results/02_28_uniform_Kfold_CV_AFF_OTHERS_allF/{feature_type}/{iteration}/with_model"
 
             
             print(f"Classifying unseen data with {feature_type} features")
-            unseen_data_path = f"../../output/results/02_21_uniform_Kfold_CV/{feature_type}/unseen_{iteration}.csv" 
+            unseen_data_path = f"../../output/results/02_28_uniform_Kfold_CV_AFF_OTHERS_allF/{feature_type}/unseen_{iteration}.csv" 
             df_labelled = pd.read_csv(unseen_data_path)
 
             classify(df_labelled, RESULT_DIR, "labelled_results.csv", MODEL_NAME)

@@ -128,181 +128,6 @@ def process_cookie_call_stack(row):
 
     return edge_data
 
-    '''
-def build_storage_components(df_javascript):
-    df_all_storage_nodes = pd.DataFrame()
-    df_all_storage_edges = pd.DataFrame()
-
-    try:
-        df_storage_nodes = pd.DataFrame()
-        df_storage_edges = pd.DataFrame()
-        df_js_cookie_nodes = pd.DataFrame()
-        df_js_cookie_edges = pd.DataFrame()
-
-        df_storage = df_javascript[
-            df_javascript["symbol"].str.contains("Storage.")
-        ].copy()
-        if len(df_storage) > 0:
-            df_storage["name"] = df_storage["arguments"].apply(get_storage_name)
-            df_storage["type"] = "Storage"
-            df_storage["node_attr"] = pd.NA
-            df_storage["attr"] = df_storage["arguments"].apply(get_storage_attr)
-            df_storage["action"] = df_storage["symbol"].apply(get_storage_action)
-
-            # df_owners_storage = utils.get_original_cookie_setters(df_storage)
-            # if len(df_owners_storage) > 0:
-            #     df_owners_storage = df_owners_storage.rename(
-            #         columns={"script_url": "setter", "time_stamp": "setting_time_stamp"})
-            #     df_owners_storage = df_owners_storage[[
-            #         'visit_id', 'name', 'setter', 'setting_time_stamp']]
-
-            # df_storage = df_storage.merge(
-            #     df_owners_storage, on=['visit_id', 'name'], how='outer')
-
-            # To be inserted
-            df_storage["domain"] = df_storage["document_url"].apply(get_domain)
-            df_storage["storage_key"] = df_storage[["name", "domain"]].apply(
-                lambda x: get_cookiedom_key(*x), axis=1
-            )
-            df_storage["storage_key"] = df_storage["storage_key"].apply(
-                lambda x: str(x) + "|$$|LS"
-            )
-            df_storage_nodes = df_storage[
-                [
-                    "visit_id",
-                    "storage_key",
-                    "type",
-                    "node_attr",
-                    "document_url",
-                    "domain",
-                    "top_level_url",
-                ]
-            ].drop_duplicates()
-            df_storage_nodes = df_storage_nodes.rename(
-                columns={"node_attr": "attr", "storage_key": "name"}
-            )
-            df_storage_edges = df_storage[
-                [
-                    "visit_id",
-                    "script_url",
-                    "storage_key",
-                    "top_level_url",
-                    "action",
-                    "attr",
-                    "time_stamp",
-                ]
-            ]
-            df_storage_edges = df_storage_edges.rename(columns={"storage_key": "name"})
-
-        df_js_cookie = df_javascript[
-            df_javascript["symbol"] == "window.document.cookie"
-        ].copy()
-
-        if len(df_js_cookie) > 0:
-            df_js_cookie["cookie_name"] = df_js_cookie[["value", "operation"]].apply(
-                lambda x: get_cookie_name(*x), axis=1
-            )
-            df_js_cookie = df_js_cookie.explode("cookie_name")[
-                [
-                    "call_stack",
-                    "cookie_name",
-                    "operation",
-                    "time_stamp",
-                    "document_url",
-                    "top_level_url",
-                    "visit_id",
-                ]
-            ]
-            df_js_cookie["cs_edges"] = df_js_cookie.apply(
-                process_cookie_call_stack, axis=1
-            )
-            df_js_cookie = (
-                df_js_cookie[["cs_edges", "document_url", "top_level_url"]]
-                .explode("cs_edges")
-                .dropna()
-            )
-            df_js_cookie["script_url"] = df_js_cookie["cs_edges"].apply(lambda x: x[0])
-            df_js_cookie["name"] = df_js_cookie["cs_edges"].apply(lambda x: x[1])
-            df_js_cookie["action"] = df_js_cookie["cs_edges"].apply(lambda x: x[2])
-            df_js_cookie["attr"] = df_js_cookie["cs_edges"].apply(lambda x: x[3])
-            df_js_cookie["visit_id"] = df_js_cookie["cs_edges"].apply(lambda x: x[4])
-            df_js_cookie["time_stamp"] = df_js_cookie["cs_edges"].apply(lambda x: x[5])
-
-            # df_owners = utils.get_original_cookie_setters(df_js_cookie)
-            # if len(df_owners) > 0:
-            #     df_owners = df_owners.rename(
-            #         columns={"script_url": "setter", "time_stamp": "setting_time_stamp"})
-            #     df_owners = df_owners[['visit_id', 'name', 'setter', 'setting_time_stamp']]
-
-            # df_js_cookie = df_js_cookie.merge(
-            #     df_owners, on=['visit_id', 'name'], how='outer')
-
-            # To be inserted
-            df_js_cookie_edges = df_js_cookie[
-                [
-                    "visit_id",
-                    "script_url",
-                    "document_url",
-                    "top_level_url",
-                    "name",
-                    "action",
-                    "attr",
-                    "time_stamp",
-                ]
-            ]
-            df_js_cookie_edges["domain"] = df_js_cookie_edges["document_url"].apply(
-                get_domain
-            )
-            df_js_cookie_edges["cookie_key"] = df_js_cookie_edges[
-                ["name", "domain"]
-            ].apply(lambda x: get_cookiedom_key(*x), axis=1)
-
-            # To be inserted
-            df_js_cookie_nodes = df_js_cookie_edges[
-                df_js_cookie_edges["action"] != "CS"
-            ][
-                ["visit_id", "cookie_key", "top_level_url", "document_url", "domain"]
-            ].drop_duplicates()
-            df_js_cookie_nodes = df_js_cookie_nodes.rename(
-                columns={"cookie_key": "name"}
-            )
-            df_js_cookie_nodes["type"] = "Storage"
-            df_js_cookie_nodes["attr"] = "Cookie"
-
-            df_js_cookie_edges = df_js_cookie_edges[
-                [
-                    "visit_id",
-                    "script_url",
-                    "cookie_key",
-                    "top_level_url",
-                    "action",
-                    "attr",
-                    "time_stamp",
-                ]
-            ]
-            df_js_cookie_edges = df_js_cookie_edges.rename(
-                columns={"cookie_key": "name"}
-            )
-
-        df_all_storage_nodes = pd.concat([df_storage_nodes, df_js_cookie_nodes])
-        df_all_storage_edges = pd.concat([df_storage_edges, df_js_cookie_edges])
-        df_all_storage_edges = df_all_storage_edges.rename(
-            columns={"script_url": "src", "name": "dst"}
-        )
-        df_all_storage_edges["reqattr"] = pd.NA
-        df_all_storage_edges["respattr"] = pd.NA
-        df_all_storage_edges["response_status"] = pd.NA
-        df_all_storage_edges["post_body"] = pd.NA
-        df_all_storage_edges["post_body_raw"] = pd.NA
-        # df_all_storage_edges['time_stamp'] = pd.NA
-        # df_all_storage_edges['attr'] = pd.NA
-
-    except Exception as e:
-        traceback.print_exc()
-        print("Error in storage_components:", e)
-
-    return df_all_storage_nodes, df_all_storage_edges
-    '''
 
 def build_storage_components(df_javascript):
     df_all_storage_nodes = pd.DataFrame()
@@ -374,6 +199,8 @@ def build_storage_components(df_javascript):
         df_js_cookie = df_javascript[
             df_javascript["symbol"] == "window.document.cookie"
         ].copy()
+        #df_js_cookie.to_csv('/home/data/chensun/affi_project/purl/output/ads/crawl_test_buildGraph/df_js_cookie.csv', index=False)
+            
 
         if len(df_js_cookie) > 0:
             df_js_cookie["cookie_name"] = df_js_cookie[["value", "operation"]].apply(
@@ -391,82 +218,99 @@ def build_storage_components(df_javascript):
                     "is_in_phase1"
                 ]
             ]
+            #df_js_cookie.to_csv('/home/data/chensun/affi_project/purl/output/ads/crawl_test_buildGraph/df_js_cookie_before_process_cookie_call_stack.csv', index=False)
+        
             df_js_cookie["cs_edges"] = df_js_cookie.apply(
                 process_cookie_call_stack, axis=1
             )
-            df_js_cookie = (
-                df_js_cookie[["cs_edges", "document_url", "top_level_url", "is_in_phase1"]]
-                .explode("cs_edges")
-                .dropna()
-            )
-            df_js_cookie["script_url"] = df_js_cookie["cs_edges"].apply(lambda x: x[0])
-            df_js_cookie["name"] = df_js_cookie["cs_edges"].apply(lambda x: x[1])
-            df_js_cookie["action"] = df_js_cookie["cs_edges"].apply(lambda x: x[2])
-            df_js_cookie["attr"] = df_js_cookie["cs_edges"].apply(lambda x: x[3])
-            df_js_cookie["visit_id"] = df_js_cookie["cs_edges"].apply(lambda x: x[4])
-            df_js_cookie["time_stamp"] = df_js_cookie["cs_edges"].apply(lambda x: x[5])
 
-            # df_owners = utils.get_original_cookie_setters(df_js_cookie)
-            # if len(df_owners) > 0:
-            #     df_owners = df_owners.rename(
-            #         columns={"script_url": "setter", "time_stamp": "setting_time_stamp"})
-            #     df_owners = df_owners[['visit_id', 'name', 'setter', 'setting_time_stamp']]
+            if (df_js_cookie['cs_edges'].apply(lambda x: x == []).any()):
+                print("There is at least one row with an empty list in 'cs_edges'.")
+                df_js_cookie_nodes = pd.DataFrame()
+                df_js_cookie_edges = pd.DataFrame()
+            else:
 
-            # df_js_cookie = df_js_cookie.merge(
-            #     df_owners, on=['visit_id', 'name'], how='outer')
+                #df_js_cookie.to_csv('/home/data/chensun/affi_project/purl/output/ads/crawl_test_buildGraph/df_js_cookie_after_process_cookie_call_stack.csv', index=False)
+            
+                df_js_cookie = (
+                    df_js_cookie[["cs_edges", "document_url", "top_level_url", "is_in_phase1"]]
+                    .explode("cs_edges")
+                    .dropna()
+                )
+                df_js_cookie["script_url"] = df_js_cookie["cs_edges"].apply(lambda x: x[0])
+                df_js_cookie["name"] = df_js_cookie["cs_edges"].apply(lambda x: x[1])
+                df_js_cookie["action"] = df_js_cookie["cs_edges"].apply(lambda x: x[2])
+                df_js_cookie["attr"] = df_js_cookie["cs_edges"].apply(lambda x: x[3])
+                df_js_cookie["visit_id"] = df_js_cookie["cs_edges"].apply(lambda x: x[4])
+                df_js_cookie["time_stamp"] = df_js_cookie["cs_edges"].apply(lambda x: x[5])
 
-            # To be inserted
-            df_js_cookie_edges = df_js_cookie[
-                [
-                    "visit_id",
-                    "script_url",
-                    "document_url",
-                    "top_level_url",
-                    "name",
-                    "action",
-                    "attr",
-                    "time_stamp",
-                    "is_in_phase1",
+                #df_js_cookie.to_csv('/home/data/chensun/affi_project/purl/output/ads/crawl_test_buildGraph/df_js_cookie_2.csv', index=False)
+            
+
+                # df_owners = utils.get_original_cookie_setters(df_js_cookie)
+                # if len(df_owners) > 0:
+                #     df_owners = df_owners.rename(
+                #         columns={"script_url": "setter", "time_stamp": "setting_time_stamp"})
+                #     df_owners = df_owners[['visit_id', 'name', 'setter', 'setting_time_stamp']]
+
+                # df_js_cookie = df_js_cookie.merge(
+                #     df_owners, on=['visit_id', 'name'], how='outer')
+
+                # To be inserted
+                df_js_cookie_edges = df_js_cookie[
+                    [
+                        "visit_id",
+                        "script_url",
+                        "document_url",
+                        "top_level_url",
+                        "name",
+                        "action",
+                        "attr",
+                        "time_stamp",
+                        "is_in_phase1",
+                    ]
                 ]
-            ]
-            df_js_cookie_edges["domain"] = df_js_cookie_edges["document_url"].apply(
-                get_domain
-            )
-            df_js_cookie_edges["cookie_key"] = df_js_cookie_edges[
-                ["name", "domain"]
-            ].apply(lambda x: get_cookiedom_key(*x), axis=1)
+                df_js_cookie_edges["domain"] = df_js_cookie_edges["document_url"].apply(
+                    get_domain
+                )
 
-            # To be inserted
-            df_js_cookie_nodes = df_js_cookie_edges[
-                df_js_cookie_edges["action"] != "CS"
-            ][
-                ["visit_id", "cookie_key", "top_level_url", "document_url", "domain", "is_in_phase1"]
-            ].drop_duplicates()
-            df_js_cookie_nodes = df_js_cookie_nodes.rename(
-                columns={"cookie_key": "name"}
-            )
-            df_js_cookie_nodes["type"] = "Storage"
-            df_js_cookie_nodes["attr"] = "Cookie"
+                #df_js_cookie_edges.to_csv('/home/data/chensun/affi_project/purl/output/ads/crawl_test_buildGraph/df_js_cookie_before_cookie_key.csv', index=False)
+            
+                df_js_cookie_edges["cookie_key"] = df_js_cookie_edges[
+                    ["name", "domain"]
+                ].apply(lambda x: get_cookiedom_key(*x), axis=1)
 
-            # [Added]
-            # remove all the row from js_cookie_edges where js_cookie_edges["action"] == CS
-            df_js_cookie_edges = df_js_cookie_edges[df_js_cookie_edges["action"] != "CS"]
+                # To be inserted
+                df_js_cookie_nodes = df_js_cookie_edges[
+                    df_js_cookie_edges["action"] != "CS"
+                ][
+                    ["visit_id", "cookie_key", "top_level_url", "document_url", "domain", "is_in_phase1"]
+                ].drop_duplicates()
+                df_js_cookie_nodes = df_js_cookie_nodes.rename(
+                    columns={"cookie_key": "name"}
+                )
+                df_js_cookie_nodes["type"] = "Storage"
+                df_js_cookie_nodes["attr"] = "Cookie"
 
-            df_js_cookie_edges = df_js_cookie_edges[
-                [
-                    "visit_id",
-                    "script_url",
-                    "cookie_key",
-                    "top_level_url",
-                    "action",
-                    "attr",
-                    "time_stamp",
-                    "is_in_phase1",
+                # [Added]
+                # remove all the row from js_cookie_edges where js_cookie_edges["action"] == CS
+                df_js_cookie_edges = df_js_cookie_edges[df_js_cookie_edges["action"] != "CS"]
+
+                df_js_cookie_edges = df_js_cookie_edges[
+                    [
+                        "visit_id",
+                        "script_url",
+                        "cookie_key",
+                        "top_level_url",
+                        "action",
+                        "attr",
+                        "time_stamp",
+                        "is_in_phase1",
+                    ]
                 ]
-            ]
-            df_js_cookie_edges = df_js_cookie_edges.rename(
-                columns={"cookie_key": "name"}
-            )
+                df_js_cookie_edges = df_js_cookie_edges.rename(
+                    columns={"cookie_key": "name"}
+                )
             
         df_all_storage_nodes = pd.concat([df_storage_nodes, df_js_cookie_nodes])
         df_all_storage_edges = pd.concat([df_storage_edges, df_js_cookie_edges])

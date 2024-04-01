@@ -201,7 +201,7 @@ def read_sql_crawl_data(visit_id, db_file, conn):
 
     # Function to save DataFrame as CSV in the directory
     #def save_df(df, filename):
-        #df.to_csv(os.path.join(dir_name, filename + ".csv"), index=False)
+        #c, index=False)
 
     # Read tables from DB and store as DataFrames
     df_requests, df_responses, df_redirects, call_stacks, javascript = gs.read_tables(
@@ -931,7 +931,7 @@ def task_handler(unique_tab_ids, first_urls, site_url, visit_id, features_file, 
 
 
 
-def pipeline_for_affads(db_file, features_file, ldb_file, subfolder, OUTPUT, db_affiliate_link_folder, non_aff_link_folder):
+def pipeline_for_affads(db_file, features_file, ldb_file, subfolder, OUTPUT, df_affiliate, df_non_aff):
     start = time.time()
     conn = gs.get_local_db_connection(db_file)
     try:
@@ -988,7 +988,7 @@ def pipeline_for_affads(db_file, features_file, ldb_file, subfolder, OUTPUT, db_
 
         try:
 
-            #visited = [3860905442139433]
+            #visited = [5707407853187437]
             #if visit_id not in visited:
             #   continue
             
@@ -1004,51 +1004,45 @@ def pipeline_for_affads(db_file, features_file, ldb_file, subfolder, OUTPUT, db_
                 continue
             """
 
-
             
             # check for affiliate
-            affiliate_path = os.path.join(db_affiliate_link_folder, "affiliate_records.csv")
-            df_affiliate = pd.read_csv(affiliate_path)
-            # extract the same visit id
-            df_affiliate = df_affiliate[df_affiliate['visit_id'] == visit_id]
-
             
+            #df_affiliate = pd.read_csv(df_affiliate_records)
+            # extract the same visit id
+            df_affiliate_filtered = df_affiliate[df_affiliate['visit_id'] == visit_id]
             # have affiliate link in this visit_id
-            if len(df_affiliate) != 0:
+            if len(df_affiliate_filtered) != 0:
                 print("Should have affiliate link, checking...")
 
-                graph_type = "affiliate" 
+                graph_type = "affiliate_stateless" 
                 graph_folder = os.path.join(OUTPUT, graph_type, subfolder)
 
                 if not os.path.exists(graph_folder):
                     os.makedirs(graph_folder)
 
-                unique_aff_tab_ids, first_aff_urls = gs.unique_aff_tab_ids(conn, visit_id, df_affiliate)
+                unique_aff_tab_ids, first_aff_urls = gs.unique_aff_tab_ids(conn, visit_id, df_affiliate_filtered)
                 task_handler(unique_aff_tab_ids, first_aff_urls, site_url, visit_id, features_file, db_file, ldb_file, graph_columns, conn, graph_folder)
 
-            """
-
+            
             # check for non-aff links
-            non_aff_path = os.path.join(non_aff_link_folder, "other_links_records.csv")
-            df_non_aff = pd.read_csv(non_aff_path)
+            #df_non_aff = pd.read_csv(df_non_affiliate_records)
             # extract the same visit id
-            df_non_aff = df_non_aff[df_non_aff['visit_id'] == visit_id]
-
-
-            if len(df_non_aff) != 0:
+            df_non_aff_filtered = df_non_aff[df_non_aff['visit_id'] == visit_id]
+            if len(df_non_aff_filtered) != 0:
                 print("Should have other type of links, checking...")
 
-                graph_type = "others" 
+                graph_type = "others_stateless" 
                 graph_folder = os.path.join(OUTPUT, graph_type, subfolder)
 
                 if not os.path.exists(graph_folder):
                     os.makedirs(graph_folder)
 
-                unique_non_aff_tab_ids, first_non_aff_urls = gs.unique_non_aff_tab_ids(conn, visit_id, df_non_aff)
+                unique_non_aff_tab_ids, first_non_aff_urls = gs.unique_non_aff_tab_ids(conn, visit_id, df_non_aff_filtered)
                 task_handler(unique_non_aff_tab_ids, first_non_aff_urls, site_url, visit_id, features_file, db_file, ldb_file, graph_columns, conn, graph_folder)
 
-
             
+
+            """
             # check for ads
             unique_ad_tab_ids, first_ad_urls = gs.unique_ad_tab_ids(conn, visit_id)
 
@@ -1077,7 +1071,7 @@ def pipeline_for_affads(db_file, features_file, ldb_file, subfolder, OUTPUT, db_
     # Label the graph
     print("Labelling the graph")
     label_fname = "label.csv"
-    for i in ["affiliate"]:
+    for i in ["others_stateless", "affiliate_stateless"]:
 
         graph_type = i 
         graph_folder = os.path.join(OUTPUT, graph_type, subfolder)
@@ -1127,21 +1121,49 @@ if __name__ == "__main__":
 
     #DB_FILE = os.path.join(FOLDER, f"datadir_test_21-0/crawl-data.sqlite")
     #LDB_FILE = os.path.join(FOLDER, f"datadir_test_21-0/content.ldb")
-    BD_PATH = "/home/data/chensun/affi_project/purl_test/OpenWPM_20/datadir_tranco-aff-normal-10000/click/0"
-    DB_FILE = "/home/data/chensun/affi_project/purl_test/OpenWPM_20/datadir_tranco-aff-normal-10000/click/crawl-data.sqlite"
-    LDB_FILE = "/home/data/chensun/affi_project/purl_test/OpenWPM_20/datadir_tranco-aff-normal-10000/click/content.ldb"
-
+    BD_PATH = "/home/data/chensun/affi_project/purl_test/OpenWPM_7/datadir_tranco-aff-normal-33000/click_newBrowser/"
+    DB_FILE = "/home/data/chensun/affi_project/purl_test/OpenWPM_7/datadir_tranco-aff-normal-33000/click_newBrowser/crawl-data.sqlite"
+    LDB_FILE = "/home/data/chensun/affi_project/purl_test/OpenWPM_7/datadir_tranco-aff-normal-33000/click_newBrowser/content.ldb"
 
     print(DB_FILE, LDB_FILE)
 
     subfolder = "crawl_"+ TAG
-    affiliate_link_folder = BD_PATH
-    non_aff_link_folder = BD_PATH
+    df_affiliate_records = pd.DataFrame()
+    df_non_affiliate_records= pd.DataFrame()
 
+    for crawl_id in os.listdir(BD_PATH):
+        ignore_file = ['content.ldb', 'crawl-data.sqlite', 'openwpm.log', 'affiliate_records.csv', 'non_affiliate_records.csv']
+        if crawl_id in ignore_file:
+            print("\tIgnore this folder")
+            continue
+        each_crawl =  os.path.join(BD_PATH, crawl_id)
+        for filename in os.listdir(each_crawl):          
+            if filename == "other_links_records.csv": 
+                file_path = os.path.join(each_crawl, filename)
+                #print("non_aff: ", file_path) 
+                df = pd.read_csv(file_path, on_bad_lines='skip')
+                df_non_affiliate_records = df_non_affiliate_records.append(df)
+            elif filename == "affiliate_records.csv":
+                file_path = os.path.join(each_crawl, filename)
+                #print("aff: ", file_path) 
+                df = pd.read_csv(file_path, on_bad_lines='skip')
+                df_affiliate_records = df_affiliate_records.append(df)
+    
 
+    if len(df_affiliate_records) == 0:
+        print(f"No affiliate link be extracted")
+        df_affiliate_records = pd.DataFrame(columns=["url", "label", "tranco_index", "site", "visit_id", "aff_url"])
+    
+    if len(df_non_affiliate_records) == 0:
+        print(f"No non-affiliate link be extracted")
+        df_non_affiliate_records = pd.DataFrame(columns=["url", "label", "tranco_index", "site", "visit_id", "aff_url"])
+
+    #df_affiliate_records.to_csv("/home/data/chensun/affi_project/purl_test/OpenWPM_8/datadir_tranco-aff-normal-32000/collect/affiliate_records.csv")
+    #df_non_affiliate_records.to_csv("/home/data/chensun/affi_project/purl_test/OpenWPM_8/datadir_tranco-aff-normal-32000/collect/non_affiliate_records.csv")
+    
     #graph_folder = os.path.abspath('../output/affiliate')  
     #print(graph_folder)
     #TAG = str(0)
-    pipeline_for_affads(DB_FILE, FEATURES_FILE, LDB_FILE, subfolder, OUTPUT, affiliate_link_folder, non_aff_link_folder)  # change this
+    pipeline_for_affads(DB_FILE, FEATURES_FILE, LDB_FILE, subfolder, OUTPUT, df_affiliate_records, df_non_affiliate_records)  # change this
   
     print(f"finish: {BD_PATH}")

@@ -1005,7 +1005,7 @@ def pipeline_for_affads(db_file, features_file, ldb_file, subfolder, OUTPUT, db_
             """
 
 
-            
+            """
             # check for affiliate
             affiliate_path = os.path.join(db_affiliate_link_folder, "affiliate_records.csv")
             df_affiliate = pd.read_csv(affiliate_path)
@@ -1048,7 +1048,7 @@ def pipeline_for_affads(db_file, features_file, ldb_file, subfolder, OUTPUT, db_
                 task_handler(unique_non_aff_tab_ids, first_non_aff_urls, site_url, visit_id, features_file, db_file, ldb_file, graph_columns, conn, graph_folder)
 
 
-            
+            """
             # check for ads
             unique_ad_tab_ids, first_ad_urls = gs.unique_ad_tab_ids(conn, visit_id)
 
@@ -1077,7 +1077,7 @@ def pipeline_for_affads(db_file, features_file, ldb_file, subfolder, OUTPUT, db_
     # Label the graph
     print("Labelling the graph")
     label_fname = "label.csv"
-    for i in ["affiliate"]:
+    for i in ["others"]:
 
         graph_type = i 
         graph_folder = os.path.join(OUTPUT, graph_type, subfolder)
@@ -1127,16 +1127,16 @@ if __name__ == "__main__":
 
     #DB_FILE = os.path.join(FOLDER, f"datadir_test_21-0/crawl-data.sqlite")
     #LDB_FILE = os.path.join(FOLDER, f"datadir_test_21-0/content.ldb")
-    BD_PATH = "/home/data/chensun/affi_project/purl_test/OpenWPM_20/datadir_tranco-aff-normal-10000/click/0"
-    DB_FILE = "/home/data/chensun/affi_project/purl_test/OpenWPM_20/datadir_tranco-aff-normal-10000/click/crawl-data.sqlite"
-    LDB_FILE = "/home/data/chensun/affi_project/purl_test/OpenWPM_20/datadir_tranco-aff-normal-10000/click/content.ldb"
+    BD_PATH = "/home/data/chensun/affi_project/purl_test/OpenWPM_15/datadir_tranco-aff-normal-18000/"
+    DB_FILE = "/home/data/chensun/affi_project/purl_test/OpenWPM_15/datadir_tranco-aff-normal-18000/crawl-data.sqlite"
+    LDB_FILE = "/home/data/chensun/affi_project/purl_test/OpenWPM_15/datadir_tranco-aff-normal-18000/content.ldb"
 
 
     print(DB_FILE, LDB_FILE)
 
     subfolder = "crawl_"+ TAG
-    affiliate_link_folder = BD_PATH
-    non_aff_link_folder = BD_PATH
+    affiliate_link_folder = os.path.join(BD_PATH, "website_affiliate")
+    non_aff_link_folder = os.path.join(BD_PATH, "website_other_links")
 
 
     #graph_folder = os.path.abspath('../output/affiliate')  

@@ -29,7 +29,9 @@ from sklearn.model_selection import train_test_split
 from imblearn.under_sampling import RandomUnderSampler
 from imblearn.over_sampling import RandomOverSampler
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import LeavePGroupsOut
 from sklearn.model_selection import GridSearchCV, LeaveOneGroupOut
+from sklearn.model_selection import KFold
 
 
 def get_domain(url):
@@ -65,6 +67,38 @@ def select_high_freq_domains(df, cutoff_ratio):
     df_not_in_top_domain = df[~df['url_domain'].isin(sorted_domains)]
     print(f"\tNumber of url not in top {cutoff_ratio*100}% domain: {len(df_not_in_top_domain)}\n")
     return sorted_domains
+
+
+def perpare_unseen_url_domain(df, num_trials):
+    # Randomly shuffle # of unique domain times
+    # Each round will pick one domain as unseen data set
+
+    total_unique_domains = df['url_domain'].nunique()
+    print("Total unique domains:", total_unique_domains)
+
+    all_selected_domains_with_freq = []
+
+    for _ in range(num_trials):
+        selected_domains = {}
+        unique_domains_list = df['url_domain'].unique()
+        # selected_unique_domains = random.sample(list(unique_domains_list), int(total_unique_domains * cutoff_ratio))
+        selected_unique_domains = random.sample(list(unique_domains_list), 5)
+        
+        for domain in selected_unique_domains:
+            domain_count = df[df['url_domain'] == domain]['url_domain'].count()
+            selected_domains[domain] = domain_count
+        
+        all_selected_domains_with_freq.append(selected_domains)
+
+    print(f"Total number of selected unique domain sets after {num_trials} trials:", len(all_selected_domains_with_freq))
+
+    for i in range(len(all_selected_domains_with_freq)):
+        print(all_selected_domains_with_freq[i])
+    
+    return all_selected_domains_with_freq
+
+
+
 
 def reduce_data(df_records, df_affiliate_phaseA_features_all, df_affiliate_phaseA_features_simple, keyword, fraction_to_select):
     df_contain_keyword = df_records[df_records['url_domain'] == keyword]
@@ -272,230 +306,6 @@ def log_prediction_probability(
         f.write(json.dumps(data_dict, indent=4))
 
 
-def classify(train, test, result_dir, tag, sample, log_pred_probability):
-    train_mani = train.copy()
-    test_mani = test.copy()
-    clf = RandomForestClassifier(n_estimators=100)
-    # clf = AdaBoostClassifier(n_estimators=100)
-    fields_to_remove = ["visit_id", "name", "label", "top_level_url", "Unnamed: 0", "Unnamed: 0_x"]
-    df_feature_train = train_mani.drop(fields_to_remove, axis=1, errors="ignore")
-    df_feature_test = test_mani.drop(fields_to_remove, axis=1, errors="ignore")
-    #df_feature_train.to_csv("/home/data/chensun/affi_project/purl/output/affiliate/fullGraph/df_feature_train.csv")
-
-    columns = df_feature_train.columns
-    print("columns: ", columns)
-    df_feature_train = df_feature_train.to_numpy()
-    train_labels = train_mani.label.to_numpy()
-
-    if sample:
-        oversample = RandomOverSampler(sampling_strategy=0.5)
-        df_feature_train, train_labels = oversample.fit_resample(
-            df_feature_train, train_labels
-        )
-        undersample = RandomUnderSampler(sampling_strategy=0.5)
-        df_feature_train, train_labels = undersample.fit_resample(
-            df_feature_train, train_labels
-        )
-
-        fname = os.path.join(result_dir, "composition")
-        with open(fname, "a") as f:
-            counts = collections.Counter(train_labels)
-            f.write(
-                "\nAfter sampling, new composition: "
-                + str(counts["Positive"])
-                + " "
-                + get_perc(counts["Positive"], len(train_labels))
-                + "\n"
-            )
-
-    # Perform training
-    clf.fit(df_feature_train, train_labels)
-
-    # save the model to disk
-    filename = os.path.join(result_dir, "model_" + str(tag) + ".sav")
-    pickle.dump(clf, open(filename, "wb"))
-
-    # Obtain feature importances
-    feature_importances = pd.DataFrame(
-        clf.feature_importances_, index=columns, columns=["importance"]
-    ).sort_values("importance", ascending=False)
-    report_feature_importance(feature_importances, result_dir)
-
-    # Perform classification and get predictions
-    cols = df_feature_test.columns
-    df_feature_test = df_feature_test.to_numpy()
-    y_pred = clf.predict(df_feature_test)
-
-    acc = accuracy_score(test_mani.label, y_pred)
-    prec_binary = precision_score(test_mani.label, y_pred, pos_label="affiliate")
-    rec_binary = recall_score(test_mani.label, y_pred, pos_label="affiliate")
-    prec_micro = precision_score(test_mani.label, y_pred, average="micro")
-    rec_micro = recall_score(test_mani.label, y_pred, average="micro")
-    prec_macro = precision_score(test_mani.label, y_pred, average="macro")
-    rec_macro = recall_score(test_mani.label, y_pred, average="macro")
-
-    # Write accuracy score
-    fname = os.path.join(result_dir, "accuracy")
-    with open(fname, "a") as f:
-        f.write("\nAccuracy score: " + str(round(acc * 100, 3)) + "%" + "\n")
-        f.write(
-            "Precision score: binary " + str(round(prec_binary * 100, 3)) + "%" + "\n"
-        )
-        f.write("Recall score: binary " + str(round(rec_binary * 100, 3)) + "%" + "\n")
-        f.write(
-            "Precision score: micro " + str(round(prec_micro * 100, 3)) + "%" + "\n"
-        )
-        f.write("Recall score: micro " + str(round(rec_micro * 100, 3)) + "%" + "\n")
-        f.write(
-            "Precision score: macro " + str(round(prec_macro * 100, 3)) + "%" + "\n"
-        )
-        f.write("Recall score: macro " + str(round(rec_macro * 100, 3)) + "%" + "\n")
-
-    print("Accuracy Score:", acc)
-
-    if log_pred_probability:
-        log_prediction_probability(
-            clf, df_feature_test, cols, test_mani, y_pred, result_dir, tag
-        )
-
-    return (
-        list(test_mani.label),
-        list(y_pred),
-        list(test_mani.name),
-        list(test_mani.visit_id),
-    )
-
-
-def classify_unknown(df_train, df_test, result_dir):
-    train_mani = df_train.copy()
-    test_mani = df_test.copy()
-    # test_mani = test_mani[test_mani['single'] != "NegBinary"]
-    # print(test_mani['single'].value_counts())
-    clf = RandomForestClassifier(n_estimators=100)
-    # clf = AdaBoostClassifier(n_estimators=100)
-    fields_to_remove = ["visit_id", "name", "label", "party", "Unnamed: 0"]
-    #'ascendant_script_length', 'ascendant_script_has_fp_keyword',
-    #'ascendant_has_ad_keyword',
-    #'ascendant_script_has_eval_or_function']
-    # 'num_exfil', 'num_infil',
-    #                   'num_url_exfil', 'num_header_exfil', 'num_body_exfil',
-    #                   'num_ls_exfil', 'num_ls_infil',
-    #                   'num_ls_url_exfil', 'num_ls_header_exfil', 'num_ls_body_exfil', 'num_cookieheader_exfil',
-    #                   'indirect_in_degree', 'indirect_out_degree',
-    #                   'indirect_ancestors', 'indirect_descendants',
-    #                   'indirect_closeness_centrality', 'indirect_average_degree_connectivity',
-    #                   'indirect_eccentricity', 'indirect_all_in_degree',
-    #                   'indirect_all_out_degree', 'indirect_all_ancestors',
-    #                   'indirect_all_descendants', 'indirect_all_closeness_centrality',
-    #                   'indirect_all_average_degree_connectivity', 'indirect_all_eccentricity'
-    # ]
-    #'num_nodes', 'num_edges',
-    #'nodes_div_by_edges', 'edges_div_by_nodes']
-    df_feature_train = train_mani.drop(fields_to_remove, axis=1, errors="ignore")
-    df_feature_test = test_mani.drop(fields_to_remove, axis=1, errors="ignore")
-
-    columns = df_feature_train.columns
-    df_feature_train = df_feature_train.to_numpy()
-    train_labels = train_mani.label.to_numpy()
-
-    # Perform training
-    clf.fit(df_feature_train, train_labels)
-
-    # Obtain feature importances
-    feature_importances = pd.DataFrame(
-        clf.feature_importances_, index=columns, columns=["importance"]
-    ).sort_values("importance", ascending=False)
-    report_feature_importance(feature_importances, result_dir)
-
-    df_feature_test = df_feature_test.to_numpy()
-    y_pred = clf.predict(df_feature_test)
-    y_pred = list(y_pred)
-    name = list(test_mani.name)
-    vid = list(test_mani.visit_id)
-
-    fname = os.path.join(result_dir, "predictions")
-    with open(fname, "w") as f:
-        for i in range(0, len(y_pred)):
-            f.write("%s |$| %s |$| %s\n" % (y_pred[i], name[i], vid[i]))
-
-    preds, bias, contributions = ti.predict(clf, df_feature_test)
-    fname = os.path.join(result_dir, "interpretations")
-    with open(fname, "w") as f:
-        data_dict = {}
-        for i in range(len(df_feature_test)):
-            name = test_mani.iloc[i]["name"]
-            vid = str(test_mani.iloc[i]["visit_id"])
-            key = str(name) + "_" + str(vid)
-            data_dict[key] = {}
-            data_dict[key]["name"] = name
-            data_dict[key]["vid"] = vid
-            c = list(contributions[i, :, 0])
-            c = [round(float(x), 2) for x in c]
-            fn = list(columns)
-            fn = [str(x) for x in fn]
-            feature_contribution = list(zip(c, fn))
-            # feature_contribution = list(zip(contributions[i,:,0], df_feature_test.columns))
-            data_dict[key]["contributions"] = feature_contribution
-        f.write(json.dumps(data_dict, indent=4))
-
-
-def classify_validation(
-    df_train, df_validation, result_dir, sample=False, log_pred_probability=False
-):
-    i = 0
-    result = classify(
-        df_train, df_validation, result_dir, i, sample, log_pred_probability
-    )
-    results = [result]
-
-    return results
-
-
-def classify_crossval(
-    df_labelled, result_dir, sample=False, log_pred_probability=False
-):
-    vid_list = df_labelled["visit_id"].unique()
-    num_iter = 10
-    num_test_vid = int(len(vid_list) / num_iter)
-    print("VIDs", len(vid_list))
-    print("To use!", num_test_vid)
-    used_test_ids = []
-    results = []
-
-    for i in range(0, num_iter):
-        print("Fold", i)
-        vid_list_iter = list(set(vid_list) - set(used_test_ids))
-        chosen_test_vid = random.sample(vid_list_iter, num_test_vid)
-        used_test_ids += chosen_test_vid
-
-        df_train = df_labelled[~df_labelled["visit_id"].isin(chosen_test_vid)]
-        df_test = df_labelled[df_labelled["visit_id"].isin(chosen_test_vid)]
-
-        fname = os.path.join(result_dir, "composition")
-        train_pos = len(df_train[df_train["label"] == "affiliate"])
-        test_pos = len(df_test[df_test["label"] == "affiliate"])
-
-        with open(fname, "a") as f:
-            f.write("\nFold " + str(i) + "\n")
-            f.write(
-                "Train: "
-                + str(train_pos)
-                + " "
-                + get_perc(train_pos, len(df_train))
-                + "\n"
-            )
-            f.write(
-                "Test: " + str(test_pos) + " " + get_perc(test_pos, len(df_test)) + "\n"
-            )
-            f.write("\n")
-
-        result = classify(
-            df_train, df_test, result_dir, i, sample, log_pred_probability
-        )
-        results.append(result)
-
-    return results
-
 
 def get_perc(num, den):
     return str(round(num / den * 100, 2)) + "%"
@@ -507,171 +317,12 @@ def label_party(name):
         return "First"
     else:
         return "Third"
-    
 
-def gird_search(df_labelled, df_labelled_holdout, result_dir, log_pred_probability):
+def gird_search_LeaveOneGroupOut(df_labelled, df_labelled_holdout, result_dir, iteration, log_pred_probability):
+    result_dir = result_dir + "/" + str(iteration)
+    if not os.path.exists(result_dir):
+        os.mkdir(result_dir)
 
-    df_labelled.drop(columns=['name_x'], inplace=True)
-    df_labelled.rename(columns={"name_y": "name"}, inplace=True)
-    df_labelled_holdout.drop(columns=['name_x'], inplace=True)
-    df_labelled_holdout.rename(columns={"name_y": "name"}, inplace=True)
-
-
-    train_mani = df_labelled.copy()
-    holdout_mani = df_labelled_holdout.copy()
-
-    fields_to_remove = ["visit_id", "name", "label", "party", "Unnamed: 0", 'top_level_url', 'Unnamed: 0_x', 'Unnamed: 0_y']
-    
-    # Store the columns you want to retain
-    train_retained = train_mani[["visit_id", "name", "top_level_url"]]
-    holdout_retained = holdout_mani[["visit_id", "name", "top_level_url"]]
-
-    df_feature_train = train_mani.drop(fields_to_remove, axis=1, errors="ignore")
-    train_labels = train_mani.label
-    col_train = df_feature_train.columns
-    df_feature_holdout = df_labelled_holdout.drop(fields_to_remove, axis=1, errors="ignore")
-
-    # Align the order of features in df_feature_test with df_feature_train
-    df_feature_holdout = df_feature_holdout[col_train]
-    holdout_labels = holdout_mani.label
-    col_holdout = df_feature_holdout.columns
-
-    df_feature_train = df_feature_train.to_numpy()
-    train_labels = train_labels.to_numpy()
-
-    #result_df = df_feature_holdout.copy()
-    df_feature_holdout = df_feature_holdout.to_numpy()
-    holdout_labels = holdout_labels.to_numpy()
-
-    """ ========= apply undersampler or oversampler ==============
-    #print("len df_feature_train before: ", len(df_feature_train))
-    
-    undersample = RandomUnderSampler(sampling_strategy=0.4)
-    df_feature_train, train_labels = undersample.fit_resample(
-        df_feature_train, train_labels
-    )
-    print("len df_feature_train after: ", len(df_feature_train))
-
-    #oversample = RandomOverSampler(sampling_strategy=0.5)
-    #df_feature_train, df_train_labels = oversample.fit_resample(
-    #    df_feature_train, df_train_labels
-    #)
-    
-    print("counts :", collections.Counter(train_labels))
-
-    fname = os.path.join(result_dir, "composition")
-    with open(fname, "a") as f:
-        counts = collections.Counter(train_labels)
-        f.write(
-            "\nAfter sampling, Positive samples (affiliate): "
-            + str(counts["affiliate"])
-            + " "
-            + get_perc(counts["affiliate"], len(train_labels))
-        )
-        f.write(
-            "\n               , Negative samples (ads): " 
-            + str(counts["ads"])
-            + " "
-            + get_perc(counts["ads"], len(train_labels))
-            + "\n"
-        )
-      
-    #  ========= apply undersampler or oversampler end ============== """
-
-    # Define the parameter grid
-    param_grid = {
-        'n_estimators': [100,150,200,250,300], # number of trees in the forest
-        'max_features': [None,'sqrt'],   # consider every features /square root of features
-        'max_depth': [5, 10, 20],
-        'min_samples_split': [5, 10, 15],  # minimum number of samples that are required to split an internal node.
-        'min_samples_leaf': [1, 2, 4],
-        'bootstrap': [True, False]
-    }
-    # Initialize the classifier
-    rf = RandomForestClassifier()
-
-    # Initialize Grid Search with 10-fold cross-validation
-    grid_search = GridSearchCV(estimator=rf, param_grid=param_grid, cv=10, n_jobs=-1, verbose=2)
-
-    # Fit the grid search to the data
-    grid_search.fit(df_feature_train, train_labels)
-
-    # Get the best model
-    best_model = grid_search.best_estimator_
-
-    best_params = best_model.get_params()
-    params_filename = os.path.join(result_dir, "best_model_parameters.txt")
-    with open(params_filename, 'w') as file:
-        for param, value in best_params.items():
-            print(f"{param}: {value}")
-            file.write(f"{param}: {value}\n")   
-
-    # Save the model to disk
-    filename = os.path.join(result_dir, "best_model.sav")
-    pickle.dump(best_model, open(filename, "wb"))
-
-    
-    # Get feature importances
-    feature_importances = pd.DataFrame(
-        best_model.feature_importances_, 
-        index=col_train, 
-        columns=["importance"]
-    ).sort_values("importance", ascending=False)
-    report_feature_importance(feature_importances, result_dir)
-
-
-    # Make predictions on the hold-out set
-    y_pred = best_model.predict(df_feature_holdout)
-    y_pred_proba = best_model.predict_proba(df_feature_holdout)
-    print(best_model.classes_)  # e.g., ['ads' 'affiliate']
-
-
-    result_df = pd.DataFrame(df_feature_holdout, columns=col_train)
-    result_df["clabel"] = y_pred
-    result_df["clabel_prob"] = y_pred_proba[:, 1]  # assuming binary classification
-    result_df['label'] = holdout_labels
-
-    # Concatenate the retained columns with result_df
-    result_df = pd.concat([holdout_retained.reset_index(drop=True), result_df.reset_index(drop=True)], axis=1)
-
-    # Save to CSV
-    result_df.to_csv(os.path.join(result_dir, "result.csv"), index=False)
-
-
-    acc = accuracy_score(holdout_labels, y_pred)
-    prec_binary = precision_score(holdout_labels, y_pred, pos_label="affiliate")
-    rec_binary = recall_score(holdout_labels, y_pred, pos_label="affiliate")
-    prec_micro = precision_score(holdout_labels, y_pred, average="micro")
-    rec_micro = recall_score(holdout_labels, y_pred, average="micro")
-    prec_macro = precision_score(holdout_labels, y_pred, average="macro")
-    rec_macro = recall_score(holdout_labels, y_pred, average="macro")
-
-    # Write accuracy score
-    fname = os.path.join(result_dir, "accuracy")
-    with open(fname, "a") as f:
-        f.write("\nAccuracy score: " + str(round(acc * 100, 3)) + "%" + "\n")
-        f.write(
-            "Precision score: binary " + str(round(prec_binary * 100, 3)) + "%" + "\n"
-        )
-        f.write("Recall score: binary " + str(round(rec_binary * 100, 3)) + "%" + "\n")
-        f.write(
-            "Precision score: micro " + str(round(prec_micro * 100, 3)) + "%" + "\n"
-        )
-        f.write("Recall score: micro " + str(round(rec_micro * 100, 3)) + "%" + "\n")
-        f.write(
-            "Precision score: macro " + str(round(prec_macro * 100, 3)) + "%" + "\n"
-        )
-        f.write("Recall score: macro " + str(round(rec_macro * 100, 3)) + "%" + "\n")
-
-    print("Accuracy Score:", acc)
-
-    if log_pred_probability:
-        log_prediction_probability(
-            best_model, df_feature_holdout, col_holdout, df_labelled_holdout, y_pred, result_dir, tag='0'
-        )
-
-
-def gird_search_LeaveOneGroupOut(df_labelled, df_labelled_holdout, result_dir, log_pred_probability):
 
     # Extract 'url_domain' for LeaveOneGroupOut before preprocessing
     groups = df_labelled['url_domain'].values
@@ -711,12 +362,12 @@ def gird_search_LeaveOneGroupOut(df_labelled, df_labelled_holdout, result_dir, l
     
     # Define the parameter grid
     param_grid = {
-        'n_estimators': [100,150,200,250,300], # number of trees in the forest
+        'n_estimators': [100,150,200], # number of trees in the forest
         'max_features': [None,'sqrt'],   # consider every features /square root of features
         'max_depth': [5, 10, 20],
         'min_samples_split': [5, 10, 15],  # minimum number of samples that are required to split an internal node.
         'min_samples_leaf': [1, 2, 4],
-        'bootstrap': [True, False]
+        'bootstrap': [False]
     }
     # Initialize the classifier
     rf = RandomForestClassifier()
@@ -806,7 +457,284 @@ def gird_search_LeaveOneGroupOut(df_labelled, df_labelled_holdout, result_dir, l
     
 
 
-def pipeline(df_features, df_labels, df_records, result_dir, domain_split, CV_method):
+def gird_search_LeavePGroupOut(df_labelled, df_labelled_holdout, result_dir, iteration, log_pred_probability):
+    result_dir = result_dir + "/" + str(iteration)
+    if not os.path.exists(result_dir):
+        os.mkdir(result_dir)
+
+
+    # Extract 'url_domain' for LeaveOneGroupOut before preprocessing
+    groups = df_labelled['url_domain'].values
+
+    df_labelled.drop(columns=['name_x'], inplace=True)
+    df_labelled.rename(columns={"name_y": "name"}, inplace=True)
+    df_labelled_holdout.drop(columns=['name_x'], inplace=True)
+    df_labelled_holdout.rename(columns={"name_y": "name"}, inplace=True)
+
+
+    train_mani = df_labelled.copy()
+    holdout_mani = df_labelled_holdout.copy()
+
+    fields_to_remove = ["visit_id", "url_domain", "name", "label", "party", "Unnamed: 0", 'top_level_url', 'Unnamed: 0_x', 'Unnamed: 0_y']
+    
+    # Store the columns you want to retain
+    train_retained = train_mani[["visit_id", "name", "top_level_url"]]
+    holdout_retained = holdout_mani[["visit_id", "name", "top_level_url"]]
+
+    df_feature_train = train_mani.drop(fields_to_remove, axis=1, errors="ignore")
+    train_labels = train_mani.label
+    col_train = df_feature_train.columns
+    df_feature_holdout = df_labelled_holdout.drop(fields_to_remove, axis=1, errors="ignore")
+
+    # Align the order of features in df_feature_test with df_feature_train
+    df_feature_holdout = df_feature_holdout[col_train]
+    holdout_labels = holdout_mani.label
+    col_holdout = df_feature_holdout.columns
+
+    df_feature_train = df_feature_train.to_numpy()
+    train_labels = train_labels.to_numpy()
+
+    #result_df = df_feature_holdout.copy()
+    df_feature_holdout = df_feature_holdout.to_numpy()
+    holdout_labels = holdout_labels.to_numpy()
+
+    
+    # Define the parameter grid
+    param_grid = {
+        'n_estimators': [100,150,200], # number of trees in the forest
+        'max_features': [None,'sqrt'],   # consider every features /square root of features
+        'max_depth': [5, 10, 20],
+        'min_samples_split': [5, 10, 15],  # minimum number of samples that are required to split an internal node.
+        'min_samples_leaf': [1, 2, 4],
+        'bootstrap': [False]
+    }
+    # Initialize the classifier
+    rf = RandomForestClassifier()
+
+    # Initialize LeaveOneGroupOut
+    lkgo = LeavePGroupsOut(n_groups=5)  # Change n_groups as needed
+
+    # Initialize Grid Search with 10-fold cross-validation
+    grid_search = GridSearchCV(estimator=rf, param_grid=param_grid, cv=lkgo, n_jobs=-1, verbose=2)
+
+    # Fit the grid search to the data
+    grid_search.fit(df_feature_train, train_labels, groups=groups)
+
+    # Get the best model
+    best_model = grid_search.best_estimator_
+
+    best_params = best_model.get_params()
+    params_filename = os.path.join(result_dir, "best_model_parameters.txt")
+    with open(params_filename, 'w') as file:
+        for param, value in best_params.items():
+            print(f"{param}: {value}")
+            file.write(f"{param}: {value}\n")   
+
+    # Save the model to disk
+    filename = os.path.join(result_dir, "best_model.sav")
+    pickle.dump(best_model, open(filename, "wb"))
+
+    
+    # Get feature importances
+    feature_importances = pd.DataFrame(
+        best_model.feature_importances_, 
+        index=col_train, 
+        columns=["importance"]
+    ).sort_values("importance", ascending=False)
+    report_feature_importance(feature_importances, result_dir)
+
+
+    # Make predictions on the hold-out set
+    y_pred = best_model.predict(df_feature_holdout)
+    y_pred_proba = best_model.predict_proba(df_feature_holdout)
+    print(best_model.classes_)  # e.g., ['ads' 'affiliate']
+
+
+    result_df = pd.DataFrame(df_feature_holdout, columns=col_train)
+    result_df["clabel"] = y_pred
+    result_df["clabel_prob"] = y_pred_proba[:, 1]  # assuming binary classification
+    result_df['label'] = holdout_labels
+
+    # Concatenate the retained columns with result_df
+    result_df = pd.concat([holdout_retained.reset_index(drop=True), result_df.reset_index(drop=True)], axis=1)
+
+    # Save to CSV
+    result_df.to_csv(os.path.join(result_dir, "result.csv"), index=False)
+
+
+    acc = accuracy_score(holdout_labels, y_pred)
+    prec_binary = precision_score(holdout_labels, y_pred, pos_label="affiliate")
+    rec_binary = recall_score(holdout_labels, y_pred, pos_label="affiliate")
+    prec_micro = precision_score(holdout_labels, y_pred, average="micro")
+    rec_micro = recall_score(holdout_labels, y_pred, average="micro")
+    prec_macro = precision_score(holdout_labels, y_pred, average="macro")
+    rec_macro = recall_score(holdout_labels, y_pred, average="macro")
+
+    # Write accuracy score
+    fname = os.path.join(result_dir, "accuracy")
+    with open(fname, "a") as f:
+        f.write("\nAccuracy score: " + str(round(acc * 100, 3)) + "%" + "\n")
+        f.write(
+            "Precision score: binary " + str(round(prec_binary * 100, 3)) + "%" + "\n"
+        )
+        f.write("Recall score: binary " + str(round(rec_binary * 100, 3)) + "%" + "\n")
+        f.write(
+            "Precision score: micro " + str(round(prec_micro * 100, 3)) + "%" + "\n"
+        )
+        f.write("Recall score: micro " + str(round(rec_micro * 100, 3)) + "%" + "\n")
+        f.write(
+            "Precision score: macro " + str(round(prec_macro * 100, 3)) + "%" + "\n"
+        )
+        f.write("Recall score: macro " + str(round(rec_macro * 100, 3)) + "%" + "\n")
+
+    print("Accuracy Score:", acc)
+
+    if log_pred_probability:
+        log_prediction_probability(
+            best_model, df_feature_holdout, col_holdout, df_labelled_holdout, y_pred, result_dir, tag='0'
+        )
+    
+
+def gird_search_Kfold_CV(df_labelled, df_labelled_holdout, result_dir, iteration, log_pred_probability):
+    result_dir = result_dir + "/" + str(iteration)
+    if not os.path.exists(result_dir):
+        os.mkdir(result_dir)
+
+
+    # Extract 'url_domain' for LeaveOneGroupOut before preprocessing
+    groups = df_labelled['url_domain'].values
+
+    df_labelled.drop(columns=['name_x'], inplace=True)
+    df_labelled.rename(columns={"name_y": "name"}, inplace=True)
+    df_labelled_holdout.drop(columns=['name_x'], inplace=True)
+    df_labelled_holdout.rename(columns={"name_y": "name"}, inplace=True)
+
+
+    train_mani = df_labelled.copy()
+    holdout_mani = df_labelled_holdout.copy()
+
+    fields_to_remove = ["visit_id", "url_domain", "name", "label", "party", "Unnamed: 0", 'top_level_url', 'Unnamed: 0_x', 'Unnamed: 0_y']
+    
+    # Store the columns you want to retain
+    train_retained = train_mani[["visit_id", "name", "top_level_url"]]
+    holdout_retained = holdout_mani[["visit_id", "name", "top_level_url"]]
+
+    df_feature_train = train_mani.drop(fields_to_remove, axis=1, errors="ignore")
+    train_labels = train_mani.label
+    col_train = df_feature_train.columns
+    df_feature_holdout = df_labelled_holdout.drop(fields_to_remove, axis=1, errors="ignore")
+
+    # Align the order of features in df_feature_test with df_feature_train
+    df_feature_holdout = df_feature_holdout[col_train]
+    holdout_labels = holdout_mani.label
+    col_holdout = df_feature_holdout.columns
+
+    df_feature_train = df_feature_train.to_numpy()
+    train_labels = train_labels.to_numpy()
+
+    #result_df = df_feature_holdout.copy()
+    df_feature_holdout = df_feature_holdout.to_numpy()
+    holdout_labels = holdout_labels.to_numpy()
+
+    
+    # Define the parameter grid
+    param_grid = {
+        'n_estimators': [100,150,200], # number of trees in the forest
+        'max_features': [None,'sqrt'],   # consider every features /square root of features
+        'max_depth': [5, 10, 20],
+        'min_samples_split': [5, 10, 15],  # minimum number of samples that are required to split an internal node.
+        'min_samples_leaf': [1, 2, 4],
+        'bootstrap': [False]
+    }
+    # Initialize the classifier
+    rf = RandomForestClassifier()
+
+    # Initialize KFold cross-validation with 10 folds
+    kfold = KFold(n_splits=10, shuffle=True, random_state=42)
+
+    # Initialize Grid Search with 10-fold cross-validation
+    grid_search = GridSearchCV(estimator=rf, param_grid=param_grid, cv=kfold, n_jobs=-1, verbose=2)
+
+    # Fit the grid search to the data
+    grid_search.fit(df_feature_train, train_labels, groups=groups)
+
+    # Get the best model
+    best_model = grid_search.best_estimator_
+
+    best_params = best_model.get_params()
+    params_filename = os.path.join(result_dir, "best_model_parameters.txt")
+    with open(params_filename, 'w') as file:
+        for param, value in best_params.items():
+            print(f"{param}: {value}")
+            file.write(f"{param}: {value}\n")   
+
+    # Save the model to disk
+    filename = os.path.join(result_dir, "best_model.sav")
+    pickle.dump(best_model, open(filename, "wb"))
+
+    
+    # Get feature importances
+    feature_importances = pd.DataFrame(
+        best_model.feature_importances_, 
+        index=col_train, 
+        columns=["importance"]
+    ).sort_values("importance", ascending=False)
+    report_feature_importance(feature_importances, result_dir)
+
+
+    # Make predictions on the hold-out set
+    y_pred = best_model.predict(df_feature_holdout)
+    y_pred_proba = best_model.predict_proba(df_feature_holdout)
+    print(best_model.classes_)  # e.g., ['ads' 'affiliate']
+
+
+    result_df = pd.DataFrame(df_feature_holdout, columns=col_train)
+    result_df["clabel"] = y_pred
+    result_df["clabel_prob"] = y_pred_proba[:, 1]  # assuming binary classification
+    result_df['label'] = holdout_labels
+
+    # Concatenate the retained columns with result_df
+    result_df = pd.concat([holdout_retained.reset_index(drop=True), result_df.reset_index(drop=True)], axis=1)
+
+    # Save to CSV
+    result_df.to_csv(os.path.join(result_dir, "result.csv"), index=False)
+
+
+    acc = accuracy_score(holdout_labels, y_pred)
+    prec_binary = precision_score(holdout_labels, y_pred, pos_label="affiliate")
+    rec_binary = recall_score(holdout_labels, y_pred, pos_label="affiliate")
+    prec_micro = precision_score(holdout_labels, y_pred, average="micro")
+    rec_micro = recall_score(holdout_labels, y_pred, average="micro")
+    prec_macro = precision_score(holdout_labels, y_pred, average="macro")
+    rec_macro = recall_score(holdout_labels, y_pred, average="macro")
+
+    # Write accuracy score
+    fname = os.path.join(result_dir, "accuracy")
+    with open(fname, "a") as f:
+        f.write("\nAccuracy score: " + str(round(acc * 100, 3)) + "%" + "\n")
+        f.write(
+            "Precision score: binary " + str(round(prec_binary * 100, 3)) + "%" + "\n"
+        )
+        f.write("Recall score: binary " + str(round(rec_binary * 100, 3)) + "%" + "\n")
+        f.write(
+            "Precision score: micro " + str(round(prec_micro * 100, 3)) + "%" + "\n"
+        )
+        f.write("Recall score: micro " + str(round(rec_micro * 100, 3)) + "%" + "\n")
+        f.write(
+            "Precision score: macro " + str(round(prec_macro * 100, 3)) + "%" + "\n"
+        )
+        f.write("Recall score: macro " + str(round(rec_macro * 100, 3)) + "%" + "\n")
+
+    print("Accuracy Score:", acc)
+
+    if log_pred_probability:
+        log_prediction_probability(
+            best_model, df_feature_holdout, col_holdout, df_labelled_holdout, y_pred, result_dir, tag='0'
+        )
+    
+
+
+def pipeline(df_features, df_labels, df_records, result_dir):
     if not os.path.exists(result_dir):
         os.mkdir(result_dir)
 
@@ -824,8 +752,8 @@ def pipeline(df_features, df_labels, df_records, result_dir, domain_split, CV_me
     #  merge label, url_domain, features based on name 
     df = df_features.merge(new_df_labels[['visit_id', 'label', 'name']], on=["visit_id"])
 
-    if domain_split:
-        df = df.merge(df_records[['visit_id', 'url_domain']], on=["visit_id"])
+    
+    df = df.merge(df_records[['visit_id', 'url_domain']], on=["visit_id"])
     
     #df.to_csv("/home/data/chensun/affi_project/purl/output/test_2.csv")
 
@@ -838,7 +766,7 @@ def pipeline(df_features, df_labels, df_records, result_dir, domain_split, CV_me
     df_labelled = df
     df_positive = df[df["label"] == "affiliate"]
     df_negative = df[df["label"] == "ads"]
-    df_negative.to_csv("/home/data/chensun/affi_project/purl/output/test_2.csv")
+    #df_negative.to_csv("/home/data/chensun/affi_project/purl/output/test_2.csv")
     #print("len df_positive: ", len(df_positive))
     #print("len df_negative: ", len(df_negative))
     df_unknown = df[df["label"] == "normal"]
@@ -879,77 +807,90 @@ def pipeline(df_features, df_labels, df_records, result_dir, domain_split, CV_me
         f.write("\n")
         
    
-    if domain_split:
+    print("\nPerpare unseen data for affiliate ...")
+    num_trials = 100
+    all_positive_domains = perpare_unseen_url_domain(df_positive, num_trials)
+    print("\nPerpare unseen data for ads ...")
+    all_negative_domains = perpare_unseen_url_domain(df_negative, num_trials)
 
-        # Preprare Traning, Testing and Holdout (test as unseen data)
-        print("\n For affiliate select high freq domains")
-        high_freq_affiliate_domains = select_high_freq_domains(df_positive, 0.3)
-        print("\n For ads select high freq domains")
-        high_freq_ads_domains = select_high_freq_domains(df_negative, 0.3)
+    print(f"number of unqiue domain in affiliate {len(all_positive_domains)}")
+    print(f"number of unqiue domain in ads {len(all_negative_domains)}")
+    
+    
+    for iteration in range(num_trials):
+        
+        print(f'Iteration: {iteration}')
 
-        # Perpare traning and testing
-        # Ensure every domain in high_freq_affiliate_domains is represented in both training and testing set
+        positive_domains_set = set(all_positive_domains[iteration].keys())
+        negative_domains_set = set(all_negative_domains[iteration].keys())
+
+        # Union of the two sets  ==> use for unseen data
+        unseen_domains_set = positive_domains_set.union(negative_domains_set)
+        print(f"\n\nDomain for unseen data: {unseen_domains_set}")
+
+        # Check if a domain appears in both sets
+        common_unseen_domains = positive_domains_set.intersection(negative_domains_set)
+        print("\n Common domains: ", common_unseen_domains)
+
+        fname = os.path.join(result_dir, "unseen_domain_record")
+        with open(fname, "a") as f:
+            f.write("Iteration: " + str(iteration) + "\n")
+            f.write(
+                "Domain for unseen data: "
+                + str(unseen_domains_set)
+                + "\n"
+            )
+            f.write("\n")
+            f.write(
+                "Common domains: "
+                + str(common_unseen_domains)
+                + "\n"
+            )
+            f.write("\n")
+            f.write(
+                "Affiliate domains: "
+                + str(all_positive_domains[iteration])
+                + "\n"
+            )
+            f.write("\n")
+            f.write(
+                "Ads domains: "
+                + str(all_negative_domains[iteration])
+                + "\n"
+            )
+            f.write("\n\n")
+        
+        # Perpare unseen data set
+        # Ensure every domain in high_freq_affiliate_domains is represented in both training and testing set    
+        df_holdout_2 = pd.DataFrame()
+        df_holdout_2 = df_labelled[df_labelled['url_domain'].isin(unseen_domains_set)]
+        df_holdout_2.to_csv(os.path.join(result_dir, f"unseen_{iteration}.csv"), index=False)
+        
+        
+        df_others_domain = df_labelled[~df_labelled['url_domain'].isin(unseen_domains_set)]
+        other_unique_domains = df_others_domain['url_domain'].unique().tolist()
+
         df_labelled_train = pd.DataFrame()
         df_labelled_test = pd.DataFrame()
-        
-        print("\n Affiliate:")
-        df_positive_high_freq = df_positive[df_positive['url_domain'].isin(high_freq_affiliate_domains)]
-        for domain in high_freq_affiliate_domains:
-            print(f"Domain {domain}")
-            df_subset = df_positive_high_freq[df_positive_high_freq['url_domain'] == domain]
+
+        for domain in other_unique_domains:
+            print(f"Domain: {domain}")
+            df_subset = df_labelled[df_labelled['url_domain'] == domain]
+            if len(df_subset) == 1:
+                print("\tOnly one sample. Appending to training data.")
+                df_labelled_train = df_labelled_train.append(df_subset)
+                continue
             X_train, X_test = train_test_split(df_subset, test_size=0.2, random_state=42)
             print(f"\tNumber of url in Training: {len(X_train)} || Testing: {len(X_test)}")
             df_labelled_train = df_labelled_train.append(X_train)
             df_labelled_test = df_labelled_test.append(X_test)
-
-        print("\n Ads:")
-        df_negative_high_freq = df_negative[df_negative['url_domain'].isin(high_freq_ads_domains)]
-        for domain in high_freq_ads_domains:
-            print(f"Domain {domain}")
-            df_subset = df_negative_high_freq[df_negative_high_freq['url_domain'] == domain]
-            X_train, X_test = train_test_split(df_subset, test_size=0.2, random_state=42)
-            print(f"\tNumber of url in Training: {len(X_train)} || Testing: {len(X_test)}")
-            df_labelled_train = df_labelled_train.append(X_train)
-            df_labelled_test = df_labelled_test.append(X_test)
-
-        
 
         print(f"\nNumber of training data: {len(df_labelled_train)}")
-        print(f"Number of training data: {len(df_labelled_test)}")
-        #print(df_labelled_train.columns)
-        #print(df_labelled_test.columns)
-        
-        # Step 4: Combine selected domains from both types
-        training_testing_domains = high_freq_affiliate_domains.union(high_freq_ads_domains)
-        df_holdout_2 = df[~df['url_domain'].isin(training_testing_domains)]
-        print("Number of samples in the holdout_2 set (unseen domain):", len(df_holdout_2))
+        print(f"Number of testing data: {len(df_labelled_test)}")
 
-        #print(df_labelled_test.columns)
-        #df_labelled_train.drop(columns=['url_domain'], inplace=True)
-        #df_labelled_test.drop(columns=['url_domain'], inplace=True)
-        #df_holdout_2.drop(columns=['url_domain'], inplace=True)
-        df_holdout_2.to_csv(os.path.join(result_dir, "unseen_domain.csv"), index=False)
+        #gird_search_LeaveOneGroupOut(df_labelled_train, df_labelled_test, result_dir, iteration, log_pred_probability=True)
+        gird_search_Kfold_CV(df_labelled_train, df_labelled_test, result_dir, iteration, log_pred_probability=True)
 
-        gird_search_LeaveOneGroupOut(df_labelled_train, df_labelled_test, result_dir, log_pred_probability=True)
-    
-    else:
-
-        # prepare for traing and test data set
-        vid_list = df["visit_id"].unique()
-        size_of_vid_in_traning = int(int(len(vid_list))*0.9)  # random split 
-        vid_in_traning = random.sample(list(vid_list), size_of_vid_in_traning)
-        #vid_list_holdout = chosen_test_vid_holdout["visit_id"].unique()
-        print("number of data set in traning: ", len(vid_in_traning))
-        df_labelled_train = df[df["visit_id"].isin(vid_in_traning)]
-        df_labelled_test = df[~df["visit_id"].isin(vid_in_traning)]
-        print("df_features_train: ", len(df_labelled_train))
-        print("df_features_test: ", len(df_labelled_test))
-
-  
-        gird_search(df_labelled_train, df_labelled_test, result_dir, log_pred_probability=True)
-    
-
-    
    
 
 if __name__ == "__main__":
@@ -961,7 +902,7 @@ if __name__ == "__main__":
 
     #RESULT_DIR_fullGraph_all = "../../output/results/01_31/fullGraph_all"
     #RESULT_DIR_fullGraph_simple = "../../output/results/01_31/fullGraph_simple" 
-    RESULT_DIR = "../../output/results/02_15_LeaveOneGroupOut/"
+    RESULT_DIR = "../../output/results/02_19_Kfold_CV/"
     if os.path.exists(RESULT_DIR) == False:
         os.makedirs(RESULT_DIR)
     
@@ -1090,25 +1031,63 @@ if __name__ == "__main__":
             # phase A 
             if filename == "features_phase1.csv": 
                 file_path = os.path.join(each_crawl, filename)
+                #print(file_path)
+                
                 df = pd.read_csv(file_path, on_bad_lines='skip')
+                #print("df visit_id: ", df['visit_id'].dtype)
+                df['visit_id'] = df['visit_id'].astype(str)
                 df_affiliate_phaseA_features_all = df_affiliate_phaseA_features_all.append(df)
 
             # phase A simple
             elif filename == "features_phase1_simple.csv": 
                 file_path = os.path.join(each_crawl, filename)
                 df = pd.read_csv(file_path, on_bad_lines='skip')
+                df['visit_id'] = df['visit_id'].astype(str)
                 df_affiliate_phaseA_features_simple = df_affiliate_phaseA_features_simple.append(df)
+            
             elif filename == "label.csv": 
                 file_path = os.path.join(each_crawl, filename)
                 df = pd.read_csv(file_path, on_bad_lines='skip')
+                df['visit_id'] = df['visit_id'].astype(str)
                 df_affiliate_labels = df_affiliate_labels.append(df)
+            
             elif filename == "records.csv" or filename == "record.csv":
                 file_path = os.path.join(each_crawl, filename)
                 df = pd.read_csv(file_path, on_bad_lines='skip')
+                df['visit_id'] = df['visit_id'].astype(str)
                 df_affiliate_records = df_affiliate_records.append(df)
             else:
                 continue
 
+
+    # remove duplicate clicked affiliate
+            
+    print("Before dedepulicate: ", len(df_affiliate_phaseA_features_all))
+    # Split the DataFrame into two based on whether visit_id contains "_"
+    df_aff_with_underscore = df_affiliate_records[df_affiliate_records['visit_id'].str.contains('_')]
+    df_aff_without_underscore = df_affiliate_records[~df_affiliate_records['visit_id'].str.contains('_')]
+    df_aff_with_underscore['parent_visit_id'] = df_aff_with_underscore['visit_id'].str.split('_', expand=True)[0]
+    
+    merged_df = pd.merge(df_aff_with_underscore, df_affiliate_phaseA_features_all, on='visit_id', how='inner') 
+    df_aff_with_underscore_phaseA_features_dedup =merged_df.drop_duplicates(subset=["name", "num_nodes", "num_edges", "parent_domain", "parent_visit_id"])
+    #df_ads_phaseA_features_deduplicate =merged_ad_phaseA_df.drop_duplicates(subset=["name", "top_level_url", "parent_domain"])
+    df_aff_with_underscore_phaseA_features_dedup = df_affiliate_phaseA_features_all.merge(df_aff_with_underscore_phaseA_features_dedup[['visit_id']], on=["visit_id"])
+    df_aff_without_underscore_phaseA_features = df_affiliate_phaseA_features_all.merge(df_aff_without_underscore[['visit_id']], on=["visit_id"])
+    df_affiliate_phaseA_features_all = pd.concat([df_aff_with_underscore_phaseA_features_dedup, df_aff_without_underscore_phaseA_features])
+    print("After dedepulicate: ", len(df_affiliate_phaseA_features_all))
+  
+
+    #print(df_ads_phaseA_features_all.columns)
+
+    print("Before dedepulicate: ", len(df_affiliate_phaseA_features_simple))
+    merged_aff_phaseA_simple_df = pd.merge(df_aff_with_underscore, df_affiliate_phaseA_features_simple, on='visit_id', how='inner') 
+    df_aff_with_underscore_phaseA_simple_dedup =merged_aff_phaseA_simple_df.drop_duplicates(subset=["name", "num_nodes", "num_edges", "parent_domain", "parent_visit_id"])
+    df_aff_with_underscore_phaseA_simple_dedup = df_affiliate_phaseA_features_simple.merge(df_aff_with_underscore_phaseA_simple_dedup[['visit_id']], on=["visit_id"])
+    df_aff_without_underscore_phaseA_simple = df_affiliate_phaseA_features_simple.merge(df_aff_without_underscore[['visit_id']], on=["visit_id"])
+    df_affiliate_phaseA_features_simple = pd.concat([df_aff_with_underscore_phaseA_simple_dedup, df_aff_without_underscore_phaseA_simple])
+    
+    print("After dedepulicate: ", len(df_affiliate_phaseA_features_simple))
+    #print(df_ads_phaseA_features_simple.columns)
 
     #print("len of affiliate fullGraph all features: ", len(df_affiliate_fullGraph_features_all))
     #print("len of affiliate fullGraph simple features: ", len(df_affiliate_fullGraph_features_simple))    
@@ -1155,90 +1134,11 @@ if __name__ == "__main__":
     print("Classifying the phaseA all features")
     df_features_phaseA_all = pd.DataFrame()
     df_features_phaseA_all = pd.concat([df_ads_phaseA_features_all,df_affiliate_phaseA_features_all])
-    domain_split = True    # change this
-    CV_method = "LeaveOneGroupOut"   # change this ["LeaveOneGroupOut", "random"]
-    pipeline(df_features_phaseA_all, df_labels, df_records, RESULT_DIR_phaseA_all, domain_split, CV_method)
+    pipeline(df_features_phaseA_all, df_labels, df_records, RESULT_DIR_phaseA_all)
 
     print("\n\nClassifying the phaseA simpler features")
     df_features_phaseA_simple = pd.DataFrame()
     df_features_phaseA_simple = pd.concat([df_ads_phaseA_features_simple,df_affiliate_phaseA_features_simple])
-    domain_split = True    # change this
-    CV_method = "LeaveOneGroupOut"   # change this ["LeaveOneGroupOut", "random"]
-    pipeline(df_features_phaseA_simple, df_labels, df_records, RESULT_DIR_phaseA_simple, domain_split, CV_method)
+    #pipeline(df_features_phaseA_simple, df_labels, df_records, RESULT_DIR_phaseA_simple)
     
 
-
-    """
-    dfs = []
-    for filename in os.listdir(affiliate_fullGraph_folder):
-        if filename.startswith("features_fullGraph") and filename.endswith(".csv"): # change this
-            if "test" in filename:
-                print("ignore the test file")
-                continue
-            file_path = os.path.join(affiliate_fullGraph_folder, filename)
-            df = pd.read_csv(file_path, on_bad_lines='skip')
-            dfs.append(df)
-
-    # Concatenate all DataFrames and reset the index
-    df_affiliate_features = pd.concat(dfs, ignore_index=True)
-
-    # Step 2: Reduce Amazon affiliate links
-    
-    is_amazon = df_affiliate_features['name'].str.contains('amazon', case=False, na=False)
-    amazon_count = is_amazon.sum()
-    # Randomly select 1/10th of amazon link
-    fraction_to_select = 0.1
-    selected_amazon_indices = np.random.choice(
-        df_affiliate_features[is_amazon].index,
-        size=int(amazon_count * fraction_to_select),
-        replace=False
-    )
-    non_amazon_df = df_affiliate_features[~is_amazon]
-    selected_amazon_df = df_affiliate_features.loc[selected_amazon_indices]
-    reduced_df_aff_features = pd.concat([non_amazon_df, selected_amazon_df])
-    visit_ids = reduced_df_aff_features['visit_id']
-    #print("visit_ids: ", len(visit_ids))
-    #print("Original size:", len(df_features))
-    #print("Reduced size:", len(reduced_df_features))
-    print("len of aff features: ", len(reduced_df_aff_features))
-    df_features = pd.DataFrame()
-    df_features = pd.concat([df_ads_features,reduced_df_aff_features])
-    print("len of all features: ", len(df_features))
-    
-    # get labels
-    df_ads_labels = pd.DataFrame()
-    
-    for filename in os.listdir(ads_fullGraph_folder):
-        if filename.startswith("label") and filename.endswith(".csv"):
-            # Construct the full file path
-            if "test" in filename:
-                print("ignore the test file")
-                continue
-            file_path = os.path.join(ads_fullGraph_folder, filename)
-            df = pd.read_csv(file_path, on_bad_lines='skip')
-            print(len(df))
-            df_ads_labels = df_ads_labels.append(df)
-    print("len of ads label: ", len(df_ads_labels))
-
-
-    df_aff_labels = pd.DataFrame()  # Make sure df_labels is initialized
-    for filename in os.listdir(affiliate_fullGraph_folder):
-        if filename.startswith("label") and filename.endswith(".csv"):
-            if "test" in filename:
-                print("ignore the test file")
-                continue
-            file_path = os.path.join(affiliate_fullGraph_folder, filename)
-            df = pd.read_csv(file_path, on_bad_lines='skip')
-            #print("File:", filename, "Length:", len(df))
-            df_aff_labels = df_aff_labels.append(df)
-
-    filtered_df_labels = df_aff_labels[df_aff_labels['visit_id'].isin(visit_ids)]
-    print("len of aff labels: ", len(filtered_df_labels))
-
-    df_labels = pd.DataFrame()
-    df_labels = pd.concat([df_ads_labels,filtered_df_labels])
-    print("len of all labels: ", len(df_labels))
-    """
-
-
-   

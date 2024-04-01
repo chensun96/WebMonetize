@@ -4,12 +4,17 @@ from .cookies import *
 import pymysql
 import sqlite3
 import ast
+import traceback
+from requests.packages.urllib3.util.retry import Retry
 from urllib.parse import urlparse
 import csv
+from requests.adapters import HTTPAdapter
 import os
+from urllib.parse import urlparse, parse_qs, urlunparse
 import json
 from adblockparser import AdblockRules
 import tld
+import requests
 from tld import get_fld
 
 
@@ -19,60 +24,6 @@ def extract_domain(url):
             return u.domain + "." + u.suffix
         except:
             return None
-
-def download_lists(FILTERLIST_DIR):
-    """
-    Function to download the lists used in AdGraph.
-    Args:
-        FILTERLIST_DIR: Path of the output directory to which filter lists should be written.
-    Returns:
-        Nothing, writes the lists to a directory.
-    This functions does the following:
-    1. Sends HTTP requests for the lists used in AdGraph.
-    2. Writes to an output directory.
-    """
-
-    num_retries = 5
-    session = requests.Session()
-    retry = Retry(total=num_retries, connect=num_retries, read=num_retries, backoff_factor=0.5)
-    adapter = HTTPAdapter(max_retries=retry, pool_connections=100, pool_maxsize=200)
-    session.mount('http://', adapter)
-    session.mount('https://', adapter)
-
-    request_headers_https = {
-        "Connection": "keep-alive",
-        "User-Agent": "Mozilla/5.0 (Windows NT 6.1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.114 Safari/537.36",
-        "Accept": "*/*",
-        "Accept-Encoding": "gzip, deflate, br"
-    }
-    # "Accept-Language": "en-US,en;q=0.9"
-
-    request_headers_http = {
-        "Connection": "keep-alive",
-        "User-Agent": "Mozilla/5.0 (Windows NT 6.1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.114 Safari/537.36",
-        "Accept": "*/*"
-    }
-
-    raw_lists = {
-        'easylist': 'https://easylist.to/easylist/easylist.txt',
-        'easyprivacy': 'https://easylist.to/easylist/easyprivacy.txt',
-        'antiadblock': 'https://raw.github.com/reek/anti-adblock-killer/master/anti-adblock-killer-filters.txt',
-        'blockzilla': 'https://raw.githubusercontent.com/annon79/Blockzilla/master/Blockzilla.txt',
-        'fanboyannoyance': 'https://easylist.to/easylist/fanboy-annoyance.txt',
-        'fanboysocial': 'https://easylist.to/easylist/fanboy-social.txt',
-        'peterlowe': 'http://pgl.yoyo.org/adservers/serverlist.php?hostformat=adblockplus&mimetype=plaintext',
-        'squid': 'http://www.squidblacklist.org/downloads/sbl-adblock.acl',
-        'warning': 'https://easylist-downloads.adblockplus.org/antiadblockfilters.txt',
-    }
-    for listname, url in raw_lists.items():
-        with open(os.path.join(FILTERLIST_DIR, "%s.txt" % listname), 'wb') as f:
-            # f.write(requests.get(url).content)
-            try:
-                response = session.get(url, timeout=45, headers=request_headers_https)
-                response_content = response.content
-                f.write(response_content)
-            except requests.exceptions.ConnectionError as e1:
-                continue
 
 
 def read_file_newline_stripped(fname):
@@ -85,56 +36,56 @@ def read_file_newline_stripped(fname):
         return []
 
 
-def setup_filterlists():
-    #FILTERLIST_DIR = "filterlists"
+def setupEasyList(easylist_dir):
+	# 'easylist': 'https://easylist.to/easylist/easylist.txt' (accessed on July 03, 2023)
+	filepath = os.path.join(easylist_dir, "easylist.txt")
+	try:
+		with open(filepath) as f:
+			rules = f.readlines()
+			rules = [x.strip() for x in rules]
+		f.close()
+	except:
+		print(
+			f"\n[ERROR] setupEasyList()::AdCollector: {str(traceback.format_exc())}\nException occured while reading filter_rules for domain: {self.site}")
+		rules = []
 
-    #if not os.path.isdir(FILTERLIST_DIR):
-    #    os.makedirs(FILTERLIST_DIR)
-    #download_lists(FILTERLIST_DIR)
+	rule_dict = {}
+	rule_dict['script'] = AdblockRules(rules, use_re2=False, max_mem=1024 * 1024 * 1024,
+									   supported_options=['script', 'domain', 'subdocument'],
+									   skip_unsupported_rules=False)
+	rule_dict['script_third'] = AdblockRules(rules, use_re2=False, max_mem=1024 * 1024 * 1024,
+											 supported_options=['third-party', 'script', 'domain', 'subdocument'],
+											 skip_unsupported_rules=False)
+	rule_dict['image'] = AdblockRules(rules, use_re2=False, max_mem=1024 * 1024 * 1024,
+									  supported_options=['image', 'domain', 'subdocument'],
+									  skip_unsupported_rules=False)
+	rule_dict['image_third'] = AdblockRules(rules, use_re2=False, max_mem=1024 * 1024 * 1024,
+											supported_options=['third-party', 'image', 'domain', 'subdocument'],
+											skip_unsupported_rules=False)
+	rule_dict['css'] = AdblockRules(rules, use_re2=False, max_mem=1024 * 1024 * 1024,
+									supported_options=['stylesheet', 'domain', 'subdocument'],
+									skip_unsupported_rules=False)
+	rule_dict['css_third'] = AdblockRules(rules, use_re2=False, max_mem=1024 * 1024 * 1024,
+										  supported_options=['third-party', 'stylesheet', 'domain', 'subdocument'],
+										  skip_unsupported_rules=False)
+	rule_dict['xmlhttp'] = AdblockRules(rules, use_re2=False, max_mem=1024 * 1024 * 1024,
+										supported_options=['xmlhttprequest', 'domain', 'subdocument'],
+										skip_unsupported_rules=False)
+	rule_dict['xmlhttp_third'] = AdblockRules(rules, use_re2=False, max_mem=1024 * 1024 * 1024,
+											  supported_options=['third-party', 'xmlhttprequest', 'domain',
+																 'subdocument'], skip_unsupported_rules=False)
+	rule_dict['third'] = AdblockRules(rules, use_re2=False, max_mem=1024 * 1024 * 1024,
+									  supported_options=['third-party', 'domain', 'subdocument'],
+									  skip_unsupported_rules=False)
+	rule_dict['domain'] = AdblockRules(rules, use_re2=False, max_mem=1024 * 1024 * 1024,
+									   supported_options=['domain', 'subdocument'], skip_unsupported_rules=False)
+	return rule_dict
+
+
+def matchURL(domain_top_level, current_domain, current_url, resource_type):
+    easylist_dir = os.path.abspath("../code/filterlists_new")
     
-     
-    FILTERLIST_DIR = os.path.abspath("../code/filterlists")
-    # print("FILTERLIST_DIR: ", FILTERLIST_DIR)
-    filterlist_rules = {}
-    filterlists = os.listdir(FILTERLIST_DIR)
-
-    for fname in filterlists:
-        rule_dict = {}
-        rules = read_file_newline_stripped(os.path.join(FILTERLIST_DIR, fname))
-        rule_dict['script'] = AdblockRules(rules, use_re2=False, max_mem=1024 * 1024 * 1024,
-                                           supported_options=['script', 'domain', 'subdocument'],
-                                           skip_unsupported_rules=False)
-        rule_dict['script_third'] = AdblockRules(rules, use_re2=False, max_mem=1024 * 1024 * 1024,
-                                                 supported_options=['third-party', 'script', 'domain', 'subdocument'],
-                                                 skip_unsupported_rules=False)
-        rule_dict['image'] = AdblockRules(rules, use_re2=False, max_mem=1024 * 1024 * 1024,
-                                          supported_options=['image', 'domain', 'subdocument'],
-                                          skip_unsupported_rules=False)
-        rule_dict['image_third'] = AdblockRules(rules, use_re2=False, max_mem=1024 * 1024 * 1024,
-                                                supported_options=['third-party', 'image', 'domain', 'subdocument'],
-                                                skip_unsupported_rules=False)
-        rule_dict['css'] = AdblockRules(rules, use_re2=False, max_mem=1024 * 1024 * 1024,
-                                        supported_options=['stylesheet', 'domain', 'subdocument'],
-                                        skip_unsupported_rules=False)
-        rule_dict['css_third'] = AdblockRules(rules, use_re2=False, max_mem=1024 * 1024 * 1024,
-                                              supported_options=['third-party', 'stylesheet', 'domain', 'subdocument'],
-                                              skip_unsupported_rules=False)
-        rule_dict['xmlhttp'] = AdblockRules(rules, use_re2=False, max_mem=1024 * 1024 * 1024,
-                                            supported_options=['xmlhttprequest', 'domain', 'subdocument'],
-                                            skip_unsupported_rules=False)
-        rule_dict['xmlhttp_third'] = AdblockRules(rules, use_re2=False, max_mem=1024 * 1024 * 1024,
-                                                  supported_options=['third-party', 'xmlhttprequest', 'domain',
-                                                                     'subdocument'], skip_unsupported_rules=False)
-        rule_dict['third'] = AdblockRules(rules, use_re2=False, max_mem=1024 * 1024 * 1024,
-                                          supported_options=['third-party', 'domain', 'subdocument'],
-                                          skip_unsupported_rules=False)
-        rule_dict['domain'] = AdblockRules(rules, use_re2=False, max_mem=1024 * 1024 * 1024,
-                                           supported_options=['domain', 'subdocument'], skip_unsupported_rules=False)
-        filterlist_rules[fname] = rule_dict
-    return filterlists, filterlist_rules
-
-
-def match_url(domain_top_level, current_domain, current_url, resource_type, rules_dict):
+    rules_dict = setupEasyList(easylist_dir)
     try:
         if domain_top_level == current_domain:
             third_party_check = False
@@ -148,7 +99,7 @@ def match_url(domain_top_level, current_domain, current_url, resource_type, rule
             if third_party_check:
                 rules = rules_dict['script_third']
                 options = {'third-party': True, 'script': True, 'domain': domain_top_level,
-                           'subdocument': subdocument_check}
+                            'subdocument': subdocument_check}
             else:
                 rules = rules_dict['script']
                 options = {'script': True, 'domain': domain_top_level, 'subdocument': subdocument_check}
@@ -156,7 +107,7 @@ def match_url(domain_top_level, current_domain, current_url, resource_type, rule
             if third_party_check:
                 rules = rules_dict['image_third']
                 options = {'third-party': True, 'image': True, 'domain': domain_top_level,
-                           'subdocument': subdocument_check}
+                            'subdocument': subdocument_check}
             else:
                 rules = rules_dict['image']
                 options = {'image': True, 'domain': domain_top_level, 'subdocument': subdocument_check}
@@ -164,7 +115,7 @@ def match_url(domain_top_level, current_domain, current_url, resource_type, rule
             if third_party_check:
                 rules = rules_dict['css_third']
                 options = {'third-party': True, 'stylesheet': True, 'domain': domain_top_level,
-                           'subdocument': subdocument_check}
+                            'subdocument': subdocument_check}
             else:
                 rules = rules_dict['css']
                 options = {'stylesheet': True, 'domain': domain_top_level, 'subdocument': subdocument_check}
@@ -172,7 +123,7 @@ def match_url(domain_top_level, current_domain, current_url, resource_type, rule
             if third_party_check:
                 rules = rules_dict['xmlhttp_third']
                 options = {'third-party': True, 'xmlhttprequest': True, 'domain': domain_top_level,
-                           'subdocument': subdocument_check}
+                            'subdocument': subdocument_check}
             else:
                 rules = rules_dict['xmlhttp']
                 options = {'xmlhttprequest': True, 'domain': domain_top_level, 'subdocument': subdocument_check}
@@ -184,91 +135,221 @@ def match_url(domain_top_level, current_domain, current_url, resource_type, rule
             options = {'domain': domain_top_level, 'subdocument': subdocument_check}
         return rules.should_block(current_url, options)
     except Exception as e:
-        ### print('Exception encountered', e)
-        ### print('top url', domain_top_level)
-        ### print('current url', current_domain)
+        print("error: ", e)
         return False
 
 
 def read_url_classification(crawl_agent_id, mount_dir):
-    classification_dir = os.path.join(mount_dir, "adurl-classification")
-    if not (os.path.exists(classification_dir)):
-        os.makedirs(classification_dir)
-        return None
-    classification_file = os.path.join(classification_dir, f"crawl-{crawl_agent_id}.csv")
-    if not (os.path.exists(classification_file)):
-        return None
-    df = pd.read_csv(classification_file)
-    return df
+	classification_dir = os.path.join(mount_dir, "adurl-classification")
+	if not (os.path.exists(classification_dir)):
+		os.makedirs(classification_dir)
+		return None
+	classification_file = os.path.join(classification_dir, f"crawl-{crawl_agent_id}.csv")
+	if not (os.path.exists(classification_file)):
+		return None
+	df = pd.read_csv(classification_file)
+	return df
 
 
 def write_url_classification(crawl_agent_id, mount_dir, url, label):
-    classification_file = os.path.join(mount_dir, "adurl-classification", f"crawl-{crawl_agent_id}.csv")
-    if not (os.path.exists(classification_file)):
-        f = open(classification_file, 'w')
-        writer = csv.writer(f)
-        header = ["url", "label"]
-        writer.writerow(header)
-        f.close()
-    f = open(classification_file, 'a+')
-    writer = csv.writer(f)
-    row = [url, label]
-    writer.writerow(row)
-    f.close()
-    return
+	classification_file = os.path.join(mount_dir, "adurl-classification", f"crawl-{crawl_agent_id}.csv")
+	if not (os.path.exists(classification_file)):
+		f = open(classification_file, 'w')
+		writer = csv.writer(f)
+		header = ["url", "label"]
+		writer.writerow(header)
+		f.close()
+	f = open(classification_file, 'a+')
+	writer = csv.writer(f)
+	row = [url, label]
+	writer.writerow(row)
+	f.close()
+	return
 
 
-def label_data(domain_url, script_url):
-    '''
-    # top_domain = the website being visited
-    # script_domain = domain of iframe url
-    # script_url = url of iframe
-    # resource_type = subframe, image, script
-    '''
+def labelData(domain_url, script_url):
+	'''
+	# top_domain = domain of the website being visited
+	# script_domain = domain of the iframe url
+	# script_url = full url of the iframe to be classified
+	# resource_type = subframe, image, script
+	'''
 
-    #url_df = read_url_classification(crawl_agent_id, mount_dir)
-    #if not (url_df is None):
-    #    try:
-    #        data_label = bool(url_df[url_df["url"] == str(script_url)]["label"])
-    #        return data_label
-    #    except:
-    #        data_label = False
-    #        pass
-    #else:
-    #    data_label = False
+	top_domain = domain_url
+	data_label = False
+	for resource_type in ["sub_frame", "image", "script"]:
+		try:
+			fld = get_fld(script_url)
+		except Exception as e:
+		#	self.ad_url_classifocation[script_url] = False
+			return False
+		list_label = matchURL(top_domain, fld, script_url, resource_type)
+		data_label = data_label | list_label
+		if data_label == True:
+			break
+	#self.ad_url_classifocation[script_url] = data_label
+	# print(script_url, data_label)
+	return data_label
 
-    #global global_curr_domain, global_url_cnt;
-    #global_url_cnt += 1
-    #top_domain = global_curr_domain
+def is_url_similar_to_any(url, urls):
+    parsed_url1 = urlparse(url)
+    query_params1 = parse_qs(parsed_url1.query)
+    
+    if 'clkt' in query_params1 or "nm" in query_params1:
+        query_params1.pop('clkt', None) 
+        query_params1.pop('nm', None) 
 
-    filterlists, filterlist_rules = setup_filterlists()
-    for fl in filterlists:
-        for resource_type in ["sub_frame", "script", "image"]:
-            list_label = match_url(domain_url, get_fld(script_url), script_url, resource_type, filterlist_rules[fl])
-            data_label = list_label
-            if data_label == True:
-                break
-        if data_label == True:
-            break
-    #print(domain_url, data_label)
 
-    #write_url_classification(crawl_agent_id, mount_dir, script_url, data_label)
-    return data_label
+        for compare_url in urls:
+            parsed_url2 = urlparse(compare_url)
+            query_params2 = parse_qs(parsed_url2.query)
+            if 'clkt' not in query_params2 and "nm" not in query_params1:
+                continue
+           
+            query_params2.pop('clkt', None)
+            query_params2.pop('nm', None)
+            
 
-def unique_ad_tab_ids(conn, visit_id):
+            if query_params1 == query_params2:
+                #print(f"{url} is similar to {compare_url}")
+                return True
+    
+    return False
+
+
+def unique_non_aff_tab_ids(conn, visit_id, df_non_aff):
 
     first_urls = {}
     unique_groups = []
+    visited_final_urls = []
+    # Find the parent site url
+    query = f"SELECT request_id, url FROM http_requests WHERE visit_id = {visit_id} ORDER BY request_id ASC LIMIT 1"
+    result = pd.read_sql_query(query, conn)
+    if result.empty or 'url' not in result:
+        # Handle the case where the result is empty
+        print("\nNo data found for the given visit_id. Continue")
+        return [], first_urls
+    
+    domain_url = result['url'].iloc[0]
+    print("\nDomain_url: ", domain_url)
+
+    df_http_requests_each_tab = pd.read_sql_query("SELECT visit_id, url, tab_id, request_id, "
+                                                    "headers, top_level_url, resource_type, "
+                                                    f"time_stamp, post_body, post_body_raw from http_requests where visit_id = {visit_id}", conn)
+    
+    unique_tab_ids_count = df_http_requests_each_tab['tab_id'].nunique()
+
+    if unique_tab_ids_count ==  1:
+        print(f"\tBut no non-affiliated links found in this {visit_id}")
+        return [], first_urls
+    
+    else:
+        groups = df_http_requests_each_tab.groupby(['visit_id', 'tab_id'])
+        for (visit_id, tab_id), group_data in groups:
+            if tab_id == -1:
+                continue
+
+            print(f"\tVisit ID: {visit_id}, Tab ID: {tab_id}")
+            group_data_sorted = group_data.sort_values(by='request_id')
+            first_row_url = group_data_sorted.iloc[0]['url']
+            
+
+            # if first_row_url found in the df_affiliate
+            df_first_row = df_non_aff[df_non_aff['url'] == first_row_url]
+
+            if len(df_first_row) != 0:
+                # deduplicate groups based on the uniqueness of the first row's URL
+                final_url = get_final_page_url_for_ads(conn, visit_id, tab_id)
+
+                if first_row_url in first_urls.values() or final_url in visited_final_urls:
+                    print("\t\tDuplicate link, ignore")
+
+                else:
+                    first_urls[(visit_id, tab_id)] = first_row_url
+                    unique_groups.append((visit_id, tab_id, group_data_sorted))
+                    visited_final_urls.append(final_url)
+                    print("\t\tURL is non-affiliated unique URL, include it")
+
+    print(f"\tNumber of non-affiliated links in {domain_url} is {len(unique_groups)}")
+    unique_non_aff_tab_ids = [tab_id for _, tab_id, _ in unique_groups]
+    #print(unique_ad_tab_ids)
+    return unique_non_aff_tab_ids,  first_urls
+
+
+def unique_aff_tab_ids(conn, visit_id, df_affiliate):
+    first_urls = {}
+    unique_groups = []
+    visited_final_urls = []
+    # Find the parent site url
+    query = f"SELECT request_id, url FROM http_requests WHERE visit_id = {visit_id} ORDER BY request_id ASC LIMIT 1"
+    result = pd.read_sql_query(query, conn)
+    if result.empty or 'url' not in result:
+        # Handle the case where the result is empty
+        print("\nNo data found for the given visit_id. Continue")
+        return [], first_urls
+    
+    domain_url = result['url'].iloc[0]
+    print("\nDomain_url: ", domain_url)
+
+    df_http_requests_each_tab = pd.read_sql_query("SELECT visit_id, url, tab_id, request_id, "
+                                                    "headers, top_level_url, resource_type, "
+                                                    f"time_stamp, post_body, post_body_raw from http_requests where visit_id = {visit_id}", conn)
+    
+    unique_tab_ids_count = df_http_requests_each_tab['tab_id'].nunique()
+
+    if unique_tab_ids_count ==  1:
+        print(f"\tBut no affiliate found in this {visit_id}")
+        return [], first_urls
+    
+    else:
+        groups = df_http_requests_each_tab.groupby(['visit_id', 'tab_id'])
+        for (visit_id, tab_id), group_data in groups:
+            if tab_id == -1:
+                continue
+
+            print(f"\tVisit ID: {visit_id}, Tab ID: {tab_id}")
+            group_data_sorted = group_data.sort_values(by='request_id')
+            first_row_url = group_data_sorted.iloc[0]['url']
+
+            # if first_row_url found in the df_affiliate
+            df_first_row = df_affiliate[df_affiliate['url'] == first_row_url]
+            if len(df_first_row) != 0:
+
+                # deduplicate groups based on the uniqueness of the first row's URL
+                final_url = get_final_page_url_for_ads(conn, visit_id, tab_id)
+
+                if first_row_url in first_urls.values() or final_url in visited_final_urls:
+                    print("\t\tDuplicate link, ignore")
+
+                else:
+                    first_urls[(visit_id, tab_id)] = first_row_url
+                    unique_groups.append((visit_id, tab_id, group_data_sorted))
+                    visited_final_urls.append(final_url)
+                    print("\t\tURL is affiliate unique URL, include it")
+
+    print(f"\tNumber of affiliate in {domain_url} is {len(unique_groups)}")
+    unique_aff_tab_ids = [tab_id for _, tab_id, _ in unique_groups]
+    #print(unique_ad_tab_ids)
+    return unique_aff_tab_ids,  first_urls
+
+
+def unique_ad_tab_ids_fake(conn, visit_id):
+
+    first_urls = {}
+    unique_groups = []
+    not_ads = []
+    visited_final_urls = []
 
     # Find the parent site url
     query = f"SELECT request_id, url FROM http_requests WHERE visit_id = {visit_id} ORDER BY request_id ASC LIMIT 1"
     result = pd.read_sql_query(query, conn)
     if result.empty or 'url' not in result:
         # Handle the case where the result is empty
-        print("No data found for the given visit_id. Continue")
-        return None
+        print("\nNo data found for the given visit_id. Continue")
+        return [], first_urls
+    
     domain_url = result['url'].iloc[0]
-    print("domain_url: ", domain_url)
+    print("\nDomain_url: ", domain_url)
 
     df_http_requests_each_tab = pd.read_sql_query("SELECT visit_id, url, tab_id, request_id, "
                                                     "headers, top_level_url, resource_type, "
@@ -276,33 +357,136 @@ def unique_ad_tab_ids(conn, visit_id):
     
     unique_tab_ids_count = df_http_requests_each_tab['tab_id'].nunique()
     print(f"Number of unique tab_ids: {unique_tab_ids_count}")
+    #if unique_tab_ids_count ==  1:  # youtube long redirect
+    if unique_tab_ids_count >=  1:  # Instagram long redirect
+    
+        groups = df_http_requests_each_tab.groupby(['visit_id', 'tab_id'])
+        for (visit_id, tab_id), group_data in groups:
+            if tab_id == -1:
+                continue
+
+            print(f"\tVisit ID: {visit_id}, Tab ID: {tab_id}")
+            group_data_sorted = group_data.sort_values(by='request_id')
+            first_row_url = group_data_sorted.iloc[0]['url']
+            print(first_row_url)
+            curr_fld = get_fld(first_row_url)
+
+
+            # # same domain for ad URLs is ok
+            #if first_row_url == domain_url or curr_fld in ["facebook.com", "instagram.com", "twitter.com", "youtube.com", "linkedin.com", "pinterest.com"]:
+            #    continue
+
+
+            # # same domain for ad urls is not ok
+            #if first_row_url == domain_url or curr_fld == get_fld(domain_url) or curr_fld in ["facebook.com", "instagram.com", "twitter.com", "youtube.com", "linkedin.com", "pinterest.com"]:
+            #    print("\t\tSame domain, ignore")
+            #    continue
+
+            
+            # deduplicate groups based on the uniqueness of the first row's URL
+            final_url = get_final_page_url_for_ads(conn, visit_id, tab_id)
+
+            if first_row_url in first_urls.values() or final_url in visited_final_urls:
+                print("\t\tDuplicate link, ignore")
+                
+            elif first_row_url in not_ads:
+                print("\t\tDuplicate not ads link, ignore")
+
+            # ignore url is is_url_similar_to_any return True 
+            elif is_url_similar_to_any(first_row_url, first_urls.values()):
+                print("\t\tSimilar ads link, ignore")
+            # check if the url is ads
+            # elif not(labelData(domain_url, first_row_url)):
+            #    not_ads.append(first_row_url)
+            #    print("\t\tURL is not ad URL, ignore")
+
+            else:
+                first_urls[(visit_id, tab_id)] = first_row_url
+                unique_groups.append((visit_id, tab_id, group_data_sorted))
+                visited_final_urls.append(final_url)
+                print("\t\tURL is ad unique URL, include it")
+
+    print(f"\tNumber of ads in {domain_url} is {len(unique_groups)}")
+    unique_ad_tab_ids = [tab_id for _, tab_id, _ in unique_groups]
+    #print(unique_ad_tab_ids)
+    return unique_ad_tab_ids,  first_urls
+
+def unique_ad_tab_ids(conn, visit_id):
+
+    first_urls = {}
+    unique_groups = []
+    not_ads = []
+    visited_final_urls = []
+
+    # Find the parent site url
+    query = f"SELECT request_id, url FROM http_requests WHERE visit_id = {visit_id} ORDER BY request_id ASC LIMIT 1"
+    result = pd.read_sql_query(query, conn)
+    if result.empty or 'url' not in result:
+        # Handle the case where the result is empty
+        print("\nNo data found for the given visit_id. Continue")
+        return [], first_urls
+    
+    domain_url = result['url'].iloc[0]
+    print("\nDomain_url: ", domain_url)
+
+    df_http_requests_each_tab = pd.read_sql_query("SELECT visit_id, url, tab_id, request_id, "
+                                                    "headers, top_level_url, resource_type, "
+                                                    f"time_stamp, post_body, post_body_raw from http_requests where visit_id = {visit_id}", conn)
+    
+    unique_tab_ids_count = df_http_requests_each_tab['tab_id'].nunique()
+    #print(f"Number of unique tab_ids: {unique_tab_ids_count}")
     if unique_tab_ids_count ==  1:
-        print("No ads in this {visit_id}", visit_id)
-        return
+        print(f"\tNo ads in this {visit_id}")
+        return [], first_urls
+    
     else:
         groups = df_http_requests_each_tab.groupby(['visit_id', 'tab_id'])
         for (visit_id, tab_id), group_data in groups:
             if tab_id == -1:
                 continue
 
-            print(f"Visit ID: {visit_id}, Tab ID: {tab_id}")
+            print(f"\tVisit ID: {visit_id}, Tab ID: {tab_id}")
             group_data_sorted = group_data.sort_values(by='request_id')
             first_row_url = group_data_sorted.iloc[0]['url']
-            if first_row_url == domain_url:
+            #print(first_row_url)
+            curr_fld = get_fld(first_row_url)
+
+
+            # # same domain for ad URLs is ok
+            if first_row_url == domain_url or curr_fld in ["facebook.com", "instagram.com", "twitter.com", "youtube.com", "linkedin.com", "pinterest.com"]:
                 continue
+
+
+            # # same domain for ad urls is not ok
+            #if first_row_url == domain_url or curr_fld == get_fld(domain_url) or curr_fld in ["facebook.com", "instagram.com", "twitter.com", "youtube.com", "linkedin.com", "pinterest.com"]:
+            #    print("\t\tSame domain, ignore")
+            #    continue
+
             else:
                 # deduplicate groups based on the uniqueness of the first row's URL
-                if first_row_url in first_urls.values():
-                    print("Duplicate link, ignore")
+                final_url = get_final_page_url_for_ads(conn, visit_id, tab_id)
+
+                if first_row_url in first_urls.values() or final_url in visited_final_urls:
+                    print("\t\tDuplicate link, ignore")
+                 
+                elif first_row_url in not_ads:
+                    print("\t\tDuplicate not ads link, ignore")
+
+                # ignore url is is_url_similar_to_any return True 
+                elif is_url_similar_to_any(first_row_url, first_urls.values()):
+                    print("\t\tSimilar ads link, ignore")
                 # check if the url is ads
-                elif not(label_data(domain_url, first_row_url)):
-                    print("URL is not ad URL, ignore")
+                elif not(labelData(domain_url, first_row_url)):
+                    not_ads.append(first_row_url)
+                    print("\t\tURL is not ad URL, ignore")
+
                 else:
                     first_urls[(visit_id, tab_id)] = first_row_url
                     unique_groups.append((visit_id, tab_id, group_data_sorted))
-                    print("URL is ad unique URL, include it")
+                    visited_final_urls.append(final_url)
+                    print("\t\tURL is ad unique URL, include it")
 
-    print(f"Number of ads in {domain_url} is {len(unique_groups)}")
+    print(f"\tNumber of ads in {domain_url} is {len(unique_groups)}")
     unique_ad_tab_ids = [tab_id for _, tab_id, _ in unique_groups]
     #print(unique_ad_tab_ids)
     return unique_ad_tab_ids,  first_urls
@@ -385,8 +569,55 @@ def read_tables(conn, visit_id):
     return df_http_requests, df_http_responses, df_http_redirects, call_stacks, javascript
 
 
-
 def get_last_redirect_request_id_for_ads(conn, visit_id, tab_id):
+    first_request_id = 0
+    # Fetch all top-level URLs for the visit_id and tab_id, ordered by request_id descending
+    query = f"""
+    SELECT request_id, top_level_url 
+    FROM http_requests 
+    WHERE visit_id = {visit_id} AND tab_id = {tab_id} 
+    ORDER BY request_id DESC
+    """
+    result = pd.read_sql_query(query, conn)
+
+    if result.empty:
+        print("No data found for the given visit_id. Continue")
+        return None
+
+    consecutive_count = 1
+    last_domain = None
+
+    for index, row in result.iterrows():
+        current_domain = extract_domain(row['top_level_url'])
+        if last_domain is None:
+            last_domain = current_domain
+        elif last_domain == current_domain:
+            consecutive_count += 1
+            if consecutive_count == 5:
+                print("\t\tDomain: " + last_domain)
+                # Found 10 consecutive URLs with the same domain
+                break
+        else:
+            # Reset the count if a different domain is found
+            consecutive_count = 1
+            last_domain = current_domain
+
+        # Find the first row with the same domain
+        query2 = f"SELECT request_id, top_level_url FROM http_requests WHERE visit_id = {visit_id} AND tab_id = {tab_id} ORDER BY request_id ASC"
+        result2 = pd.read_sql_query(query2, conn)
+        for index, row in result2.iterrows():
+            if extract_domain(row['top_level_url']) == last_domain:
+                #print("Domain: " + last_domain)
+                #print("\tPhase A end with request ID: ", row['request_id'])
+                first_request_id = row['request_id']
+                break
+
+    return first_request_id
+
+"""
+def get_last_redirect_request_id_for_ads(conn, visit_id, tab_id):
+    # TODO: top level url for the last request id could from other domain
+    # Change to if last 10 consecutive top level url are the same, then extrain the domain. 
     first_request_id = 0
 
     query = f"SELECT top_level_url FROM http_requests WHERE visit_id = {visit_id} AND tab_id = {tab_id} ORDER BY request_id DESC LIMIT 1"
@@ -410,7 +641,7 @@ def get_last_redirect_request_id_for_ads(conn, visit_id, tab_id):
             first_request_id = row['request_id']
             break
     return first_request_id
-
+"""
 
 def get_last_redirect_timestamp_for_ads(conn, visit_id, tab_id):
     first_time_stamp = ""
@@ -422,7 +653,7 @@ def get_last_redirect_timestamp_for_ads(conn, visit_id, tab_id):
 
     if result.empty or 'top_level_url' not in result:
         # Handle the case where the result is empty
-        print("No data found in javascript table for the given visit_id. Continue")
+        print("No data found in javascript table for the given visit_id. Ignore this url")
         return None
 
     last_url = result['top_level_url'].iloc[0]
@@ -669,11 +900,11 @@ def get_final_page_url(conn, visit_id):
 
 
 def get_final_page_url_for_ads(conn, visit_id, tab_id):
-    request_id = get_last_redirect_request_id(conn, visit_id)
+    request_id = get_last_redirect_request_id_for_ads(conn, visit_id, tab_id)
     query = f"""
     SELECT url, time_stamp 
     FROM http_requests 
-    WHERE visit_id = {visit_id} AND tab_id = {tab_id} AND CAST(request_id AS INT) = {request_id} 
+    WHERE CAST(visit_id AS INT) = {visit_id} AND tab_id = {tab_id} AND CAST(request_id AS INT) = {request_id} 
     ORDER BY time_stamp DESC 
     LIMIT 1
     """
@@ -742,8 +973,14 @@ def get_sites_visit(conn):
     
     successful_vids = df_successful_sites['visit_id'].tolist()
     print(successful_vids)
-    query = "SELECT visit_id, site_url from site_visits where visit_id in %s" % str(tuple(successful_vids))
-    
+
+    if len(successful_vids) == 1:
+        # If there's only one visit_id, format it without a tuple
+        query = "SELECT visit_id, site_url FROM site_visits WHERE visit_id = %s" % successful_vids[0]
+    else:
+        # If there are multiple visit_ids, format it using a tuple
+        query = "SELECT visit_id, site_url FROM site_visits WHERE visit_id IN %s" % str(tuple(successful_vids))
+
     return pd.read_sql_query(query, conn)
 
 def get_cookies_info(conn, visit_id):
