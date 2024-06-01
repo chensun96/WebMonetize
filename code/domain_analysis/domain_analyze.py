@@ -46,8 +46,8 @@ if __name__ == "__main__":
     
     for crawl_id in os.listdir(others_folder):
         visited = ["crawl_aff_normal_10_2", "crawl_aff_normal_260", "crawl_aff_normal_120", "crawl_aff_normal_140"]
-        if crawl_id not in visited:
-            continue
+        #if crawl_id not in visited:
+        #    continue
         each_crawl =  os.path.join(others_folder, crawl_id)
         for filename in os.listdir(each_crawl):
             

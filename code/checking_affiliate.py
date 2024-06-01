@@ -4,10 +4,6 @@ import re
 import graph_scripts as gs
 import os
 
-def apply_affiliate_rule(url):
-    if apply_affiliate_rule_1(url) or apply_affiliate_rule_2(url) or apply_affiliate_rule_3(url):
-        return True
-    return False
 
 def apply_affiliate_rule_1(url):
     # Parse the URL string using urlparse
@@ -89,14 +85,14 @@ def apply_affiliate_rule_1(url):
                      urlDomain == 'anrdoezrs' or urlDomain == 'dpbolvw' or urlDomain == 'kqzyfj' or urlDomain == 'jdoqocy' or urlDomain == 'tkqlhce') and regexp_anrdoezrs.search(
                 urlPath)) or
             (urlDomain == 'emjcd') or
-            (urlDomain == 'dotomi') or
+            (urlDomain == 'dotomi' and urlSubDomain == "cj") or
             (urlDomain == 'qksrv') or
 
             (urlDomain == 'zaful' and 'lkid' in params_list) or
             (urlDomain == 'codecanyon' and 'ref' in params_list) or
             (urlDomain == 'graphicriver' and 'ref' in params_list) or
             (urlDomain == 'themeforest' and 'ref' in params_list) or
-            (urlDomain == 'admitad' and (regexp_admitad_1.search(urlPath) or regexp_admitad_2.search(urlPath))) or
+            (urlDomain == 'admitad' and (regexp_admitad_1.search(urlPath) or regexp_admitad_2.search(x.urlPath))) or
             (urlDomain == 'flipkart' and 'affid' in params_list) or
 
             ((urlDomain == 'pntra' or
@@ -106,12 +102,15 @@ def apply_affiliate_rule_1(url):
               urlDomain == 'pntrs' or
               urlDomain == 'pntrac') and (regexp_pepperjam.search(urlPath)))
     ):
+      
         return True
 
     return False
 
+
 def apply_affiliate_rule_2(url):
-    pattern = r"(target.com/.*\?afid=)|(target.com/.*&afid=)|(ad.admitad.com/g/)|(ad.admitad.com/goto/)|(performance.affiliaxe.com/.*\?aff_id=)|(performance.affiliaxe.com/.*&aff_id=)|(s.aliexpress.com/.*\?af=)|(s.aliexpress.com/.*&af=)|(amazon.com/.*\?tag=)|(amazon.com/.*&tag=)|(amazon.de/.*\?tag=)|(amazon.de/.*&tag=)|(amazon.it/.*\?tag=)|(amazon.it/.*&tag=)|(amazon.in/.*\?tag=)|(amazon.in/.*&tag=)|(amazon.fr/.*\?tag=)|(amazon.fr/.*&tag=)|(primevideo.com/.*\?ref=)|(primevideo.com/.*&ref=)|(itunes.apple.com/.*\?at=)|(itunes.apple.com/.*&at=)|(apple.com/.*\?afid=)|(apple.com/.*&afid=)|(affiliates.audiobooks.com/.*\?a_aid=.*&a_bid=)|(affiliates.audiobooks.com/.*\?a_bid=.*&a_aid=)|(affiliates.audiobooks.com/.*&a_bid=.*&a_aid=)|(avantlink.com/.*\?pw=)|(avantlink.com/.*&pw=)|(secure.avangate.com/.*\?affiliate=)|(secure.avangate.com/.*&affiliate=)|(awin1.com/.*\?awinaffid=)|(awin1.com/.*&awinaffid=)|(ad.zanox.com/ppc\^)|(zenaps.com/rclick.php\?)|(banggood.com/.*\?p=)|(banggood.com/.*&p=)|(bookdepository.com/.*\?a_aid=)|(bookdepository.com/.*&a_aid=)|(booking.com/.*\?aid=)|(booking.com/.*&aid=)|(hop.clickbank.net\^)|(anrdoezrs.net/click-)|(cj.dotomi.com\^)|(dpbolvw.net/click-)|(emjcd.com\^)|(jdoqocy.com/click-)|(kqzyfj.com/click-)|(qksrv.net\^)|(tkqlhce.com/click-)|(designmodo.com/\?\\u=)|(rover.ebay.com/.*\?campid=)|(rover.ebay.com/.*&campid=)|(audiojungle.net/.*\?ref=)|(audiojungle.net/.*&ref=)|(codecanyon.net/.*\?ref=)|(codecanyon.net/.*&ref=)|(marketplace.envato.com/.*\?ref=)|(marketplace.envato.com/.*&ref=)|(graphicriver.net/.*\?ref=)|(graphicriver.net/.*&ref=)|(themeforest.net/.*\?ref=)|(themeforest.net/.*&ref=)|(videohive.net/.*\?ref=)|(videohive.net/.*&ref=)|(buyeasy.by/cashback/)|(buyeasy.by/redirect/)|(flipkart.com/.*\?affid=)|(flipkart.com/.*&affid=)|(gtomegaracing.com/.*\?tracking=)|(gtomegaracing.com/.*&tracking=)|(search.hotellook.com/.*\?marker=)|(search.hotellook.com/.*&marker=)|(hotmart.net.br/.*\?a=)|(hotmart.net.br/.*&a=)|(7eer.net/c/)|(evyy.net/c/)|(kontrolfreek.com/.*\?a_aid=)|(kontrolfreek.com/.*&a_aid=)|(online.ladbrokes.com/promoRedirect\?\?key=)|(online.ladbrokes.com/promoRedirect\?.*&key=)|(makeupgeek.com/.*\?acc=)|(makeupgeek.com/.*&acc=)|(gopjn.com/t/)|(pjatr.com/t/)|(pjtra.com/t/)|(pntra.com/t/)|(pntrac.com/t/)|(pntrs.com/t/)|(click.linksynergy.com/.*\?id=)|(click.linksynergy.com/.*&id=)|(go.redirectingat.com/.*\?id=)|(go.redirectingat.com/.*&id=)|(olymptrade.com/.*\?affiliate)"
+   
+    pattern = r"(target.com/.*\?afid=)|(target.com/.*&afid=)|(ad.admitad.com/g/)|(ad.admitad.com/goto/)|(performance.affiliaxe.com/.*\?aff_id=)|(performance.affiliaxe.com/.*&aff_id=)|(s.aliexpress.com/.*\?af=)|(s.aliexpress.com/.*&af=)|(amazon.com/.*\?tag=)|(amazon.com/.*&tag=)|(amazon.de/.*\?tag=)|(amazon.de/.*&tag=)|(amazon.it/.*\?tag=)|(amazon.it/.*&tag=)|(amazon.in/.*\?tag=)|(amazon.in/.*&tag=)|(amazon.fr/.*\?tag=)|(amazon.fr/.*&tag=)|(amazon\..*&tag=)|(amazon\..*?\?tag=)| (primevideo.com/.*\?ref=)|(primevideo.com/.*&ref=)|(itunes.apple.com/.*\?at=)|(itunes.apple.com/.*&at=)|(apple.com/.*\?afid=)|(apple.com/.*&afid=)|(affiliates.audiobooks.com/.*\?a_aid=.*&a_bid=)|(affiliates.audiobooks.com/.*\?a_bid=.*&a_aid=)|(affiliates.audiobooks.com/.*&a_bid=.*&a_aid=)|(avantlink.com/.*\?pw=)|(avantlink.com/.*&pw=)|(secure.avangate.com/.*\?affiliate=)|(secure.avangate.com/.*&affiliate=)|(awin1.com/.*\?awinaffid=)|(awin1.com/.*&awinaffid=)|(ad.zanox.com/ppc\^)|(zenaps.com/rclick.php\?)|(banggood.com/.*\?p=)|(banggood.com/.*&p=)|(bookdepository.com/.*\?a_aid=)|(bookdepository.com/.*&a_aid=)|(booking.com/.*\?aid=)|(booking.com/.*&aid=)|(hop.clickbank.net\^)|(anrdoezrs.net/click-)|(cj.dotomi.com\^)|(dpbolvw.net/click-)|(emjcd.com\^)|(jdoqocy.com/click-)|(kqzyfj.com/click-)|(qksrv.net\^)|(tkqlhce.com/click-)|(designmodo.com/\?\\u=)|(rover.ebay.com/.*\?campid=)|(rover.ebay.com/.*&campid=)|(audiojungle.net/.*\?ref=)|(audiojungle.net/.*&ref=)|(codecanyon.net/.*\?ref=)|(codecanyon.net/.*&ref=)|(marketplace.envato.com/.*\?ref=)|(marketplace.envato.com/.*&ref=)|(graphicriver.net/.*\?ref=)|(graphicriver.net/.*&ref=)|(themeforest.net/.*\?ref=)|(themeforest.net/.*&ref=)|(videohive.net/.*\?ref=)|(videohive.net/.*&ref=)|(buyeasy.by/cashback/)|(buyeasy.by/redirect/)|(flipkart.com/.*\?affid=)|(flipkart.com/.*&affid=)|(gtomegaracing.com/.*\?tracking=)|(gtomegaracing.com/.*&tracking=)|(search.hotellook.com/.*\?marker=)|(search.hotellook.com/.*&marker=)|(hotmart.net.br/.*\?a=)|(hotmart.net.br/.*&a=)|(7eer.net/c/)|(evyy.net/c/)|(kontrolfreek.com/.*\?a_aid=)|(kontrolfreek.com/.*&a_aid=)|(online.ladbrokes.com/promoRedirect\?\?key=)|(online.ladbrokes.com/promoRedirect\?.*&key=)|(makeupgeek.com/.*\?acc=)|(makeupgeek.com/.*&acc=)|(gopjn.com/t/)|(pjatr.com/t/)|(pjtra.com/t/)|(pntra.com/t/)|(pntrac.com/t/)|(pntrs.com/t/)|(click.linksynergy.com/.*\?id=)|(click.linksynergy.com/.*&id=)|(go.redirectingat.com/.*\?id=)|(go.redirectingat.com/.*&id=)|(olymptrade.com/.*\?affiliate)"
     
     search_pattern = re.compile(pattern)
 
@@ -121,17 +120,36 @@ def apply_affiliate_rule_2(url):
         return False
 
 def apply_affiliate_rule_3(url):
-    pattern = r"(=aff$)|(\baff_id=)|(\baff_code=)|(\baff=\b)|(\bafftrack=)|(\bref_id=)|(\bref_id=\b)|(\brfsn=)|(\brcode=)|(\breferral\b)|(\baff_trace_key=)|(\baff_fcid=)|(\baff_fsk=)|(\baffiliate\b)"
-
+    pattern = r"(=aff$)|(\baff_id=)|(\baff_code=)|(\baff=\b)|(\bafftrack=)|(\bref_id=)|(\bref_id=\b)|(\brfsn=)|(\brcode=)|(\baff_trace_key=)|(\baff_fcid=)|(\baff_fsk=)"
+    
     # Search for the pattern in the URL
     match = re.search(pattern, url)
     if re.search(pattern, url):
         print(f"Matched pattern: {match.group()} at position: {match.start()}-{match.end()}")
         
-        return True  # The URL matches the pattern
+        return True  
     else:
-        return False  # The URL does not match the pattern
+        return False 
 
+def apply_affiliate_rule_4(url):
+    pattern = r"(walmart\.com\/.*[?&]affiliates_ad_id=)|(amazon\.com\/.*\&tag=)|(bestbuy\.com\/.*\?[^?]*irclickid=[^?]*&.*ref=)|(lego\.com\/.*AffiliateUS.*)|(mudpuppy\.com\/.*\?[^?]*irclickid=[^?]*&.*sharedid=)|(wayfair\.com\/.*\?[^?]*refID=[^?]*&.*clickid=)|(wayfair\.com\/.*\?[^?]*refid=)|(rei\.com\/.*\?[^?]*cm_mmc=aff_AL-.*)|(etsy\.com\/.*\?[^?]*sv_affiliateId=)|(homedepot\.com\/.*\?[^?]*cm_mmc=afl-ir-.*)|(lowes\.com\/.*\?[^?]*cm_mmc=aff-.*)|(potterybarn\.com\/.*\?[^?]*cm_ven=afshoppromo.*)|(potterybarnkids\.com\/.*\?[^?]*cm_ven=afshoppromo.*)|(\butm_medium=affiliate[^&]*)|(\bUtm_medium=affiliate[^&]*)|(\butm_source=affiliate[^&]*)|(\bsource=affiliate[^&]*)|(\butm_medium=AFF[^&]*)|(nerdwallet\.com\/redirect\/[0-9a-fA-F-]+[?].*&impression_id=)|(\baffid=)|(\bAFFID=)|(\baffname=)|(\bAffsrc=)|(=IRAFF_[^&]*)|(\butm_medium=af)|(samsung\.com\/.*[?&]btn_ref=[^&]*)"
+    
+    # Search for the pattern in the URL
+    match = re.search(pattern, url)
+    if re.search(pattern, url):
+        print(f"Matched pattern: {match.group()} at position: {match.start()}-{match.end()}")
+        
+        return True  
+    else:
+        return False 
+
+def apply_affiliate_rule(url):
+    rules = [apply_affiliate_rule_1, apply_affiliate_rule_2, apply_affiliate_rule_3, apply_affiliate_rule_4]
+  
+    for rule in rules:
+        if rule(url):
+            return True
+    return False
 
 def affiliate_rule_1(x):
     params_list = map(lambda y: y.split('=')[0], x.urlParams.split('&'))
@@ -261,7 +279,7 @@ def manipulate_urls(row, url_column):
                       sd,
                       parsed_url.query.lower()])
 
-
+"""
 def check_affiliate_link(visit_id, site_url, conn):
     affiliate_link_found = False
     df_requests, df_responses, df_redirects, call_stacks, javascript = gs.read_tables_phase1(conn, visit_id)
@@ -318,10 +336,46 @@ def check_affiliate_link(visit_id, site_url, conn):
             return affiliate_link_found
 
     return affiliate_link_found
+"""
+
+
+def collect_phase1_urls (df_requests_phase1, df_responses_phase1, df_redirects_phase1):
+    
+    df_requests_phase1, df_responses_phase1, df_redirects_phase1
+    url_list = []
+
+    # Process and check each DataFrame (requests, responses, redirects)
+    for df, url_column in [(df_requests_phase1, 'url'), (df_responses_phase1, 'url'), (df_redirects_phase1, 'old_request_url'), (df_redirects_phase1, 'new_request_url')]:
+        # Skip processing if the DataFrame is empty
+        if df.empty:
+            continue
+        urls = df[url_column].tolist()  
+        
+        url_list.extend(urls)
+        
+
+    return url_list
+    
+# record the affiliate link
+def label_data(df_requests_phase1, df_responses_phase1, df_redirects_phase1):
+    
+    matched_url = ""
+    apply_rule_label = False
+    visited_urls = collect_phase1_urls(df_requests_phase1, df_responses_phase1, df_redirects_phase1)
+
+    for visited_url in visited_urls:
+        apply_rule_label = apply_affiliate_rule(visited_url)
+        if apply_rule_label:
+            matched_url = visited_url
+            print("matched_url: ", matched_url)
+            break
+    
+    graph_type = "affiliate" if apply_rule_label else "others"
+
+    return graph_type
 
 
 
-# Example usage
-# url = "https://pubmatic-match.dotomi.com/match/bounce/current?networkId=17100&version=1&nuid=C95B37D1-F4A5-42DC-A3C4-39E42FF6F547&gdpr=0&gdpr_consent="
-# rint(apply_affiliate_rule_1(url))
-
+#url = "https://www.amazon.co.uk/DJI-Osmo-4K-UHD-Gimbal/dp/B016LAAYL2/ref=as_li_ss_tl?ie=UTF8&qid=1525579452&sr=8-4&keywords=dji+osmo&linkCode=sl1&tag=japan03d-21&linkId=8e2d30d86ac275741625bd8d6fa4661f"
+#print(apply_affiliate_rule(url))
+ 

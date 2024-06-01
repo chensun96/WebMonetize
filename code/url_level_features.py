@@ -203,50 +203,12 @@ def calculate_shannon_entropy(url):
         return 0  # If both path and query are empty, entropy is 0
 
 
-def extract_url_additional_features(df_label, df_records):
-
-    # need initial url, landing_page_url # of key value pairs
-    # need number of redirect hops
-    # Path depth for initial and landing page
-
-    #url_features_names = ["visit_id", "name", "init_url_num_query_params", "landing_url_num_query_params" \
-    #                      "num_of_redirect", "init_url_path_depth", "landing_url_path_depth" \
-    #                    "init_url_shannon_entropy", "landing_url_shannon_entropy", "average_shannon_entropy"]
+def extract_url_additional_features(df_redirect_chains, df_records):
     
-
-    """
-    url_features = pd.DataFrame()
-    df_records.rename(columns={"url": "init_url"}, inplace=True)
-    df_records.rename(columns={"url_domain": "init_url_domain"}, inplace=True)
-
-    merged_df = pd.merge(df_label, df_records, on='visit_id', how='left')
-    merged_df.to_csv("/home/data/chensun/affi_project/purl/output/ads/crawl_tranco_sites_160/test_2.csv")
-    df_records_dedup = merged_df(subset=['visit_id'])
-
-    url_features["visit_id"] = df_records_dedup["visit_id"]
-    url_features["init_url_num_query_params"] = df_records_dedup["init_url"].apply(get_num_query_params)
-    url_features["landing_url_num_query_params"] = df_records_dedup["landing_page_url"].apply(get_num_query_params)
-    
-    
-    url_features["num_of_redirect"] = df_records_dedup["name"].apply(get_num_of_redirect)
-    url_features["init_url_path_depth"] = df_records_dedup["init_url"].apply(get_path_depth)
-    url_features["landing_url_path_depth"] = df_records_dedup["landing_page_url"].apply(get_path_depth)
-    
-    url_features["init_url_shannon_entropy"] = df_records_dedup["init_url"].apply(calculate_shannon_entropy)
-    url_features["landing_url_shannon_entropy"] = df_records_dedup["landing_page_url"].apply(calculate_shannon_entropy)
-    
-    merged_df["average_shannon_entropy"] = merged_df.groupby('visit_id')['url'].apply(lambda x: x.apply(calculate_shannon_entropy).mean())
-    url_features = url_features.merge(merged_df[['visit_id', 'average_shannon_entropy']], on=["visit_id"])
-    url_features.to_csv("/home/data/chensun/affi_project/purl/output/ads/crawl_tranco_sites_160/test_3.csv")
-    """
-    
-
     url_features = pd.DataFrame()
     url_features["visit_id"] = df_records["visit_id"]
     url_features["init_url_num_query_params"] = df_records["url"].apply(get_num_query_params)
     url_features["landing_url_num_query_params"] = df_records["landing_page_url"].apply(get_num_query_params)
-    df_label_unique = df_label.drop_duplicates(subset=['visit_id'])
-    df_label_unique.to_csv("/home/data/chensun/affi_project/purl/test.csv")
     
     url_features["init_url_path_depth"] = df_records["url"].apply(get_path_depth)
     url_features["landing_url_path_depth"] = df_records["landing_page_url"].apply(get_path_depth)
@@ -254,29 +216,51 @@ def extract_url_additional_features(df_label, df_records):
     url_features["landing_url_shannon_entropy"] = df_records["landing_page_url"].apply(calculate_shannon_entropy)
     
     df_num_of_redirect = pd.DataFrame({
-    'visit_id': df_label_unique['visit_id'],
-    'num_of_redirect': df_label_unique['name'].apply(get_num_of_redirect)
+    'visit_id': df_redirect_chains['visit_id'],
+    'num_of_redirect': df_redirect_chains['redirect_domain_total'].apply(get_num_of_redirect)
     })
 
     # Merge the url_features DataFrame with the DataFrame containing num_of_redirect
     url_features = url_features.merge(df_num_of_redirect, on='visit_id', how='inner')
     url_features.to_csv("/home/data/chensun/affi_project/purl/url.csv")
     
-
     df_all_shannon_entropy = pd.DataFrame({
-    'visit_id': df_label['visit_id'],
-    'shannon_entropy': df_label['url'].apply(calculate_shannon_entropy)
-    })
-  
-    #df_average_shannon_entropy = pd.DataFrame({
-    #'visit_id': df_all_shannon_entropy['visit_id'],
-    #'average_shannon_entropy': df_all_shannon_entropy.groupby('visit_id')['shannon_entropy'].mean()
-    #})
+    'visit_id': df_redirect_chains['visit_id'],
+    'shannon_entropy': df_redirect_chains['url'].apply(calculate_shannon_entropy)
+    })  
     df_average_shannon_entropy = df_all_shannon_entropy.groupby('visit_id')['shannon_entropy'].mean().reset_index()
     df_average_shannon_entropy = df_average_shannon_entropy.drop_duplicates(subset=['visit_id'])
     df_average_shannon_entropy.rename(columns={"shannon_entropy": "average_shannon_entropy"}, inplace=True)
-    
+
+    df_all_urls_num_query_params = pd.DataFrame({
+    'visit_id': df_redirect_chains['visit_id'],
+    'num_query_params': df_redirect_chains['url'].apply(get_num_query_params)
+    })  
+    df_average_num_query_params = df_all_urls_num_query_params.groupby('visit_id')['num_query_params'].mean().reset_index()
+    df_average_num_query_params = df_average_num_query_params.drop_duplicates(subset=['visit_id'])
+    df_average_num_query_params.rename(columns={"num_query_params": "average_num_query_params"}, inplace=True)
+    df_all_urls_num_query_params = df_all_urls_num_query_params.groupby('visit_id')['num_query_params'].sum().reset_index()
+    df_all_urls_num_query_params = df_all_urls_num_query_params.drop_duplicates(subset=['visit_id'])
+    df_all_urls_num_query_params.rename(columns={"num_query_params": "total_num_query_params"}, inplace=True)
+
+
+    df_all_urls_num_path_depth = pd.DataFrame({
+    'visit_id': df_redirect_chains['visit_id'],
+    'num_path_depth': df_redirect_chains['url'].apply(get_path_depth)
+    })  
+    df_average_num_path_depth = df_all_urls_num_path_depth.groupby('visit_id')['num_path_depth'].mean().reset_index()
+    df_average_num_path_depth = df_average_num_path_depth.drop_duplicates(subset=['visit_id'])
+    df_average_num_path_depth.rename(columns={"num_path_depth": "average_num_path_depth"}, inplace=True)
+    df_all_urls_num_path_depth = df_all_urls_num_path_depth.groupby('visit_id')['num_path_depth'].sum().reset_index()
+    df_all_urls_num_path_depth = df_all_urls_num_path_depth.drop_duplicates(subset=['visit_id'])
+    df_all_urls_num_path_depth.rename(columns={"num_path_depth": "total_num_path_depth"}, inplace=True)
+
+
     url_features = url_features.merge(df_average_shannon_entropy, on='visit_id', how='inner')
+    url_features = url_features.merge(df_average_num_query_params, on='visit_id', how='inner')
+    url_features = url_features.merge(df_average_num_path_depth, on='visit_id', how='inner')
+    url_features = url_features.merge(df_all_urls_num_query_params, on='visit_id', how='inner')
+    url_features = url_features.merge(df_all_urls_num_path_depth, on='visit_id', how='inner')
     
     return url_features
 
@@ -739,175 +723,42 @@ def pipline_only_extract_storage_features(df, visit_id, final_page_url, graph_co
                     graph_path,
     )
 
+def process_crawls(folder):
+    for crawl_id in os.listdir(folder):
+        each_crawl =  os.path.join(folder, crawl_id)
 
-def pipeline(df, visit_id, final_page_url, graph_columns, graph_path):
-   
-    print(f"Building graph features in {graph_path}")
+        # Check if this crawl complete, or still building
+        label_path = os.path.join(each_crawl, 'redirect_chains.csv')
+        if not os.path.exists(label_path):
+            print("This crawl is not complete. Ignore")
+            continue
+        if os.path.exists(label_path):
+            print("url features already exist, continue")
+            continue
+        
+        for filename in os.listdir(each_crawl):
     
-    graph_feature_columns = [
-        "visit_id",
-        "name",
-        "top_level_url",
-        "num_nodes",
-        "num_edges",
-        "average_degree",
-        "average_in_degree",
-        "average_out_degree",
-        "median_in_degree",
-        "median_out_degree",
-        "max_in_degree", 
-        "max_out_degree", 
-        "density",
-        "avg_clustering_coefficient",
-        "transitivity",
-        "number_of_ccs",
-        "average_size_cc",
-        "largest_cc",
-        "smallest_cc",
-        "max_avg_path_length",
-        "average_degree_centrality",
-        "median_degree_centrality",
-        "max_degree_centrality",
-        "min_degree_centrality",
-        "std_dev_degree_centrality",
-        "average_closeness_centrality",
-        "median_closeness_centrality",
-        "max_closeness_centrality",
-        "min_closeness_centrality",
-        "std_dev_closeness_centrality",
-        "average_closeness_centrality_outward", 
-        "median_closeness_centrality_outward",
-        "max_closeness_centrality_outward", 
-        "min_closeness_centrality_outward", 
-        "std_dev_closeness_centrality_outward",
-        "average_path_length_for_largest_cc",
-        "num_get_storage",
-        "num_set_storage",
-        "num_get_storage_js",
-        "num_set_storage_js",
-        "num_all_gets",
-        "num_all_sets",
-        "num_get_storage_in_product_node",
-        "num_set_storage_in_product_node",
-        "num_get_storage_js_in_product_node",
-        "num_set_storage_js_in_product_node",
-        "num_all_gets_in_product_node",
-        "num_all_sets_in_product_node",
-    ]
+            if filename in ["redirect_chains.csv", "records.csv", "record.csv"]: 
+                if filename == "redirect_chains.csv":
+                    file_path = os.path.join(each_crawl, filename)
+                    df_redirect_chains = pd.read_csv(file_path, on_bad_lines='skip')
+                else:
+                    file_path = os.path.join(each_crawl, filename)
+                    df_records = pd.read_csv(file_path, on_bad_lines='skip')
+        print(os.path.join(each_crawl, filename))      
+        df_url_features = extract_url_additional_features(df_redirect_chains, df_records)
+        df_url_features = df_url_features.drop_duplicates(subset=['visit_id']) 
+        df_url_features.to_csv(os.path.join(each_crawl, "url_features.csv"))
 
-    graph_feature_columns_simple = [
-        "visit_id",
-        "name",
-        "top_level_url",
-        "num_nodes", 
-        "num_edges", 
-        "max_in_degree", 
-        "max_out_degree", 
-        "nodes_div_by_edges", 
-        "edges_div_by_nodes", 
-        "density", 
-        "largest_cc", 
-        "number_of_ccs", 
-        "transitivity", 
-        "average_path_length_for_largest_cc",
-        "num_get_storage",
-        "num_set_storage",
-        "num_get_storage_js",
-        "num_set_storage_js",
-        "num_all_gets",
-        "num_all_sets",
-        "num_get_storage_in_product_node",
-        "num_set_storage_in_product_node",
-        "num_get_storage_js_in_product_node",
-        "num_set_storage_js_in_product_node",
-        "num_all_gets_in_product_node",
-        "num_all_sets_in_product_node",
-    ]
-
-    df.groupby(["visit_id"]).apply(
-                    apply_tasks,
-                    visit_id,
-                    final_page_url,
-                    None,
-                    graph_columns,
-                    graph_feature_columns,
-                    graph_feature_columns_simple,  
-                    graph_path
-    )
 
             
 if __name__ == "__main__":
     url_features_columns = []
     # fullGraph classification
-    others_folder = "../output/others"
+    others_folder = "../output/others_yt"
     ads_folder = "../output/ads"
-    affiliate_folder = "../output/affiliate"
+    affiliate_folder = "../output/affiliate_yt"
     
-    for crawl_id in os.listdir(others_folder):
-       
-        if crawl_id != "crawl_aff_normal_140":
-            continue
-        each_crawl =  os.path.join(others_folder, crawl_id)
-        for filename in os.listdir(each_crawl):
+    process_crawls(affiliate_folder)
+    process_crawls(others_folder)
     
-            if filename in ["label.csv", "records.csv", "record.csv"]: 
-                if filename == "label.csv":
-                    file_path = os.path.join(each_crawl, filename)
-                    df_label = pd.read_csv(file_path, on_bad_lines='skip')
-                else:
-                    file_path = os.path.join(each_crawl, filename)
-                    df_records = pd.read_csv(file_path, on_bad_lines='skip')
-        print(os.path.join(each_crawl, filename))      
-        df_url_features = extract_url_additional_features(df_label, df_records)
-        df_url_features.to_csv(os.path.join(each_crawl, "url_features.csv"))
-
-    """
-    for crawl_id in os.listdir(ads_folder):
-        if "unseen" in crawl_id:
-            print("\tIgnore this folder, since it is for testing")
-            continue
-        if "old" in crawl_id:
-            print("\tIgnore this folder, since it is old")
-            continue
-        
-        each_crawl =  os.path.join(ads_folder, crawl_id)
-        for filename in os.listdir(each_crawl):
-            
-            if filename in ["label.csv", "records.csv", "record.csv"]: 
-                if filename == "label.csv":
-                    file_path = os.path.join(each_crawl, filename)
-                    df_label = pd.read_csv(file_path, on_bad_lines='skip')
-                else:
-                    file_path = os.path.join(each_crawl, filename)
-                    df_records = pd.read_csv(file_path, on_bad_lines='skip')
-        print(os.path.join(each_crawl, filename))      
-        df_url_features = extract_url_additional_features(df_label, df_records)
-        df_url_features.to_csv(os.path.join(each_crawl, "url_features.csv"))
-
-                
-        
-    
-    for crawl_id in os.listdir(affiliate_folder):
-        if "unseen" in crawl_id:
-            print("\tIgnore this folder, since it is for testing")
-            continue
-        #if crawl_id == "crawl_1" or crawl_id == "crawl_5" or crawl_id == "crawl_6" or crawl_id == "crawl_10":
-        #    print("\tIgnore this folder, since it has to much Amazon link")
-        #    continue
-        each_crawl =  os.path.join(affiliate_folder, crawl_id)
-        for filename in os.listdir(each_crawl):
-            
-            if filename in ["label.csv", "records.csv", "record.csv"]: 
-                if filename == "label.csv":
-                    file_path = os.path.join(each_crawl, filename)
-                    aff_df_label = pd.read_csv(file_path, on_bad_lines='skip')
-                    aff_df_label['visit_id'] = aff_df_label['visit_id'].astype(str)
-                else:
-                    file_path = os.path.join(each_crawl, filename)
-                    aff_df_records = pd.read_csv(file_path, on_bad_lines='skip')
-                    aff_df_records['visit_id'] = aff_df_records['visit_id'].astype(str)
-        print(os.path.join(each_crawl, filename))    
-        df_url_features = extract_url_additional_features(aff_df_label, aff_df_records)
-        df_url_features.to_csv(os.path.join(each_crawl, "url_features.csv"))
-
-    """

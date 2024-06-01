@@ -16,6 +16,7 @@ from adblockparser import AdblockRules
 import tld
 import requests
 from tld import get_fld
+import re
 
 
 def extract_domain(url):
@@ -490,6 +491,67 @@ def unique_ad_tab_ids(conn, visit_id):
     unique_ad_tab_ids = [tab_id for _, tab_id, _ in unique_groups]
     #print(unique_ad_tab_ids)
     return unique_ad_tab_ids,  first_urls
+
+
+# for youtube description
+def unique_tab_ids(conn, visit_id):
+
+    first_urls = {}
+    unique_groups = []
+    visited_final_urls = []
+    # Find the parent site url
+    query = f"SELECT request_id, url FROM http_requests WHERE visit_id = {visit_id} ORDER BY request_id ASC LIMIT 1"
+    result = pd.read_sql_query(query, conn)
+    if result.empty or 'url' not in result:
+        # Handle the case where the result is empty
+        print("\nNo data found for the given visit_id. Continue")
+        return [], first_urls
+    
+    domain_url = result['url'].iloc[0]
+    print("\nDomain_url: ", domain_url)
+
+    df_http_requests_each_tab = pd.read_sql_query("SELECT visit_id, url, tab_id, request_id, "
+                                                    "headers, top_level_url, resource_type, "
+                                                    f"time_stamp, post_body, post_body_raw from http_requests where visit_id = {visit_id}", conn)
+    
+    unique_tab_ids_count = df_http_requests_each_tab['tab_id'].nunique()
+
+    if unique_tab_ids_count ==  1:
+        print(f"\tBut no real time clicking links found in this {visit_id}")
+        return [], first_urls
+    
+    else:
+        groups = df_http_requests_each_tab.groupby(['visit_id', 'tab_id'])
+        for (visit_id, tab_id), group_data in groups:
+            if tab_id == -1:
+                continue
+
+            print(f"\tVisit ID: {visit_id}, Tab ID: {tab_id}")
+            group_data_sorted = group_data.sort_values(by='request_id')
+            first_row_url = group_data_sorted.iloc[0]['url']
+            
+        
+            # deduplicate groups based on the uniqueness of the first row's URL
+            final_url = get_final_page_url_for_ads(conn, visit_id, tab_id)
+
+            exclude_pattern = r"(youtube\.com/watch\?v=.+)"
+            should_exclude = re.search(exclude_pattern, final_url)
+
+            if first_row_url in first_urls.values() or final_url in visited_final_urls:
+                print("\t\tDuplicate link, ignore")
+            elif should_exclude:
+                print("\t\tNon-affiliate pattern, ignore")
+
+            else:
+                first_urls[(visit_id, tab_id)] = first_row_url
+                unique_groups.append((visit_id, tab_id, group_data_sorted))
+                visited_final_urls.append(final_url)
+                print("\t\tURL is unique URL, include it")
+
+    print(f"\tNumber of links in {domain_url} is {len(unique_groups)}")
+    unique_tab_ids = [tab_id for _, tab_id, _ in unique_groups]
+    #print(unique_ad_tab_ids)
+    return unique_tab_ids,  first_urls
 
 def get_max_min_request_id(df_http_requests, df_http_responses, df_http_redirects):
     # Convert request_id and old_request_id columns to numeric (integer) explicitly

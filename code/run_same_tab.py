@@ -5,7 +5,7 @@ import pandas as pd
 import gc
 from yaml import full_load
 
-from checking_affiliate import check_affiliate_link
+#from checking_affiliate import check_affiliate_link
 from feature_extraction import extract_graph_features
 from feature_extraction import extract_graph_features_phase1
 from networkx.readwrite import json_graph
@@ -1062,7 +1062,7 @@ if __name__ == "__main__":
     # LDB_FILE = os.path.join(FOLDER, f"datadir_ads_unseen_data_0/content.ldb")
     # LDB_FILE = ''
 
-    DB_FILE = "/home/data/chensun/affi_project/purl_test/OpenWPM_2/Instagram_highlight_2/crawl-data.sqlite"
+    DB_FILE = "/home/data/chensun/affi_project/purl_test/OpenWPM_2/datadir_youtube_aff-normal-50000/crawl-data.sqlite"
     LDB_FILE = ""
 
     print(DB_FILE, LDB_FILE)

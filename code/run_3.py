@@ -1,11 +1,15 @@
 import graph_scripts as gs
 import labelling_scripts as ls
+import labelling_aff_rules as aff_rules
 from tqdm import tqdm
 import pandas as pd
 import gc
+import re
 from yaml import full_load
 
-from checking_affiliate import check_affiliate_link
+from url_level_features import extract_url_additional_features
+from extract_main_frame import extract_redirect_chains
+from checking_affiliate import label_data
 from feature_extraction import extract_graph_features
 from feature_extraction import extract_graph_features_phase1
 from networkx.readwrite import json_graph
@@ -25,7 +29,7 @@ import networkx as nx
 import matplotlib.pyplot as plt
 import tld
 from tld import get_fld
-
+import shutil
 
 pd.set_option("display.max_rows", None, "display.max_columns", None)
 
@@ -189,6 +193,17 @@ def get_party(row):
     return "N/A"
 
 
+def visit_already_processed(visit_id, non_aff_graph_folder):
+    records_features_fname = "records.csv"
+    features_path = os.path.join(non_aff_graph_folder,records_features_fname)
+    df_features = pd.read_csv(features_path)
+    for existed_visit_id in df_features["visit_id"]:
+        if str(existed_visit_id).startswith(str(visit_id)):
+            print('already label. Continue')
+            return True
+    return False
+
+
 def read_sql_crawl_data(visit_id, db_file, conn):
     """Read SQL data from crawler for a given visit_ID.
     :param visit_id: visit ID of a crawl URL.
@@ -201,7 +216,7 @@ def read_sql_crawl_data(visit_id, db_file, conn):
 
     # Function to save DataFrame as CSV in the directory
     #def save_df(df, filename):
-        #c, index=False)
+        #df.to_csv(os.path.join(dir_name, filename + ".csv"), index=False)
 
     # Read tables from DB and store as DataFrames
     df_requests, df_responses, df_redirects, call_stacks, javascript = gs.read_tables(
@@ -322,7 +337,7 @@ def read_sql_crawl_data(visit_id, db_file, conn):
     return df_all_graph
 
 
-def read_sql_crawl_data_for_ads(visit_id, db_file, conn, tab_id):
+def read_sql_crawl_data_for_multi_tabs(visit_id, db_file, conn, tab_id):
     """Read SQL data from crawler for a given visit_ID.
     :param visit_id: visit ID of a crawl URL.
     :return: Parsed information (nodes and edges) in pandas df.
@@ -363,6 +378,7 @@ def read_sql_crawl_data_for_ads(visit_id, db_file, conn, tab_id):
     df_requests_phase1, df_responses_phase1, df_redirects_phase1, call_stacks_phase1, javascript_phase1 = gs.read_tables_phase1_for_ads(
         conn, visit_id, tab_id,  max_request_id, min_request_id
     )
+
 
     #print("df_requests_phase1 visit_id: ", df_requests_phase1['visit_id'].dtype)
     #print("df_responses_phase1 visit_id: ", df_responses_phase1['visit_id'].dtype)
@@ -652,286 +668,67 @@ def apply_tasks(
 
         graph_approach_features.pipeline(df, visit_id, final_page_url, graph_columns, graph_path)
 
-
     except Exception as e:
         print("Errored in pipeline:", e)
         traceback.print_exc()
 
 
-def pipeline(db_file, features_file, ldb_file, graph_folder, graph_type):
-    start = time.time()
-    conn = gs.get_local_db_connection(db_file)
-    try:
-        sites_visits = read_sites_visit(db_file, conn)
-    except Exception as e:
-        tqdm.write(f"Problem reading the sites_visits or the scraper data: {e}")
-        exit()
+def separate_graph_by_label(subfolder, all_graph_folder, df_rule_based_label, rule_based_aff_folder, rule_based_others_folder):
 
-    end = time.time()
-    print("read site visits", end - start)
-
-    fail = 0
-    start = time.time()
-
-    graph_columns = [
-        "visit_id",
-        "name",
-        "top_level_url",
-        "type",
-        "attr",
-        "domain",
-        "document_url",
-        "setter",
-        "setting_time_stamp",
-        "top_level_domain",
-        "setter_domain",
-        "graph_attr",
-        "party",
-        "src",
-        "dst",
-        "action",
-        "time_stamp",
-        "reqattr",
-        "respattr",
-        "response_status",
-        "content_hash",
-        "post_body",
-        "post_body_raw",
-        "is_in_phase1"
-    ]
-    
-    
-    for i, row in tqdm(
-        sites_visits.iterrows(),
-        total=len(sites_visits),
-        position=0,
-        leave=True,
-        ascii=True,
-    ):
-        # For each visit, grab the visit_id and the site_url
-        visit_id = row["visit_id"]
-        site_url = row["site_url"]
-        tqdm.write("")
-           
-        tqdm.write(f"• Visit ID: {visit_id} | Site URL: {site_url}")
-        try:
-            start = time.time()
-
-            #if visit_id != 1205808226920810:
-            #    continue
-            
-
-            """
-            # In case crawl failed in middle, like pipeline broken. Restart the building.
-
-            storage_features_fname = "storage.csv"
-            features_path = os.path.join(graph_folder,storage_features_fname)
-            df_features = pd.read_csv(features_path)
-            # if visit_id in df_features["visit_id"], continue
-            if visit_id in df_features['visit_id'].values:
-                print("continue since already include")
-                continue
-            """
-
-            # this cannot be parallelized as it is reading from the sqlite file, only one process at a time can do that
-            pdf = read_sql_crawl_data(visit_id, db_file, conn)
-            if pdf.empty:
-                print("Fail to crawl this link since empty callstacks. Ignore")
-                # TODO: add these failed to crawl link to OpenWPM and prepare for second time crawl
-                continue
-            
-            final_page_url = gs.get_final_page_url(conn, visit_id)
-            print("final_page_url: ", final_page_url)
+    other_files = ['features_phase1_simple.csv', 'features_phase1.csv', 'records.csv', 'redirect_chains.csv', 'url_features.csv', 'rule_based_label.csv']
+    data_files = {}
+    # Pre-load other files into memory
+    for file_name in other_files:
+        file_path = os.path.join(all_graph_folder, file_name)
+        if os.path.exists(file_path):
+            data_files[file_name] = pd.read_csv(file_path)
         
-            end = time.time()
-            print("Built graph of shape: ", pdf.shape, "in :", end - start)
-            pdf = pdf[pdf["top_level_domain"].notnull()]
-            
-            
-            """
-            # Below is procesing. Check if a link is affiliate or not
-            normal_link = "/home/data/chensun/affi_project/purl/code/normal_potential.csv"
-            affiliate_link = "/home/data/chensun/affi_project/purl/code/affiliate_potential.csv"
-            
-            df_features_normal = pd.read_csv(normal_link)
-            df_features_affiliate = pd.read_csv(affiliate_link)
-            # if the site_url already in either two file, continue
-            if site_url in df_features_normal['site_url'].values or site_url in df_features_affiliate['site_url'].values:
-                print("continue since already include")
-                continue
-
-            # Check if the url is affiliate link or not.
-            if check_affiliate_link(visit_id, site_url, conn):
-                print("Affiliate link.")
-                
-            else:
-                print("Not affiliate link")
-
-                columns = ["site_url"]
-                df = pd.DataFrame([[site_url]], columns=columns)
-                if not os.path.exists(normal_link):
-                    df.to_csv(normal_link, index=False)
+    grouped = df_rule_based_label.groupby('visit_id')
+    for visit_id, group in grouped:
+        label = group['final_rules_based_label'].iloc[0]  # all rows in group have the same label
+        
+        if label == 'affiliate':
+            destination_folder = os.path.join(rule_based_aff_folder, subfolder)
+        elif label == 'others':
+            destination_folder = os.path.join(rule_based_others_folder, subfolder)
+        else:
+            continue
+        
+        os.makedirs(destination_folder, exist_ok=True)
+        
+        # Handle files for this visit_id
+        for file_name, df in data_files.items():
+            df_filtered = df[df['visit_id'] == visit_id]
+            # Check if any data exists for this visit_id
+            if not df_filtered.empty:
+                other_destination_path = os.path.join(destination_folder, file_name)
+                if os.path.exists(other_destination_path):
+                    df_filtered.to_csv(other_destination_path, mode='a', header=False, index=False)
                 else:
-                    df.to_csv(normal_link, mode='a', header=False, index=False)
-            """
+                    df_filtered.to_csv(other_destination_path, index=False)
 
-            
-            """
-            # extract graph features
-            
-            pdf.groupby(["visit_id"]).apply(
-                apply_tasks,
-                visit_id,
-                features_file,
-                final_page_url,
-                ldb_file,
-                graph_columns,
-                graph_folder
-            )
-            """
-            graph_approach_features.pipline_only_extract_storage_features(pdf, visit_id, final_page_url, graph_columns, graph_folder)
-            
-            end = time.time()
-            print("Finished processing graph: ", row["visit_id"], "in :", end - start)
 
-            
-
-            # Collect site url domain
-            print("Collecting site url domain")
-            features_path = os.path.join(graph_folder,"features_phase1.csv")
-            df_features = pd.read_csv(features_path)
-            if visit_id not in df_features['visit_id'].values:
-                continue   # ignore since this visit_id is failed to build graph
-
-            records_fname = "records.csv"
-            records_path = os.path.join(graph_folder, records_fname)
-
-            site_url_domain = gs.get_domain(site_url)
-            landing_page_domain = gs.get_domain(final_page_url)
-            df = pd.DataFrame({
-                'visit_id': [visit_id],
-                'url_domain': [site_url_domain],
-                'url': [site_url],
-                'landing_page_domain': [landing_page_domain],
-                'landing_page_url': [final_page_url],
-            })
-            if not os.path.exists(records_path):
-                df.to_csv(records_path, index=False)
-            else:
-                df.to_csv(records_path, mode="a", header=False, index=False)
-            
-
-        except Exception as e:
-            fail += 1
-            tqdm.write(f"Fail: {fail}")
-            tqdm.write(f"Error: {e}")
-            traceback.print_exc()
-            pass
-        
+def delete_incomplete_affiliate_link(subfolder, rule_based_aff_folder):
+    aff_network = ['rstyle.me', 'linksynergy.com', 'awin1.com', 'skimresources.com', 'howl.me'\
+                   'shop-links.co', 'bam-x.com', 'narrativ.com', 'ztk5.net', 'narrativ.com']
     
-    # Label the graph
-    print("Labelling the graph")
-    label_fname = "label.csv"
-    labels_path = os.path.join(graph_folder, label_fname)
-
-
-    graph_fname = "graph.csv"     
-    graph_path = os.path.join(graph_folder,graph_fname)
-
-
-    df_Graph = pd.read_csv(graph_path)
-    df_labels = label_url_type(df_Graph, graph_type)
-
-    df_labels.to_csv(labels_path, index=False)
-
-
-def task_handler(unique_tab_ids, first_urls, site_url, visit_id, features_file, db_file, ldb_file, graph_columns, conn, graph_folder):
-    for i in range(len(unique_tab_ids)):
-        try: 
-            url = first_urls[(visit_id, unique_tab_ids[i])]
-
-            tqdm.write("• Building graph")
     
-            tqdm.write(f"• • Visit ID: {visit_id} | TAG ID: {unique_tab_ids[i]} | URL: {url}")
+    # Check if this crawl complete, or still building
+    label_path = os.path.join(rule_based_aff_folder, subfolder, 'rule_based_label.csv')
 
-            start = time.time()
-            pdf = read_sql_crawl_data_for_ads(visit_id, db_file, conn, unique_tab_ids[i])
-            
-            # this cannot be parallelized as it is reading from the sqlite file, only one process at a time can do that
-            #pdf = read_sql_crawl_data(visit_id, db_file, conn)
-            if pdf.empty:
-                print("Fail to crawl this link since empty callstacks. Ignore")
-                # TODO: add these failed to crawl link to OpenWPM and prepare for second time crawl
-                continue
-        
-            final_page_url = gs.get_final_page_url_for_ads(conn, visit_id, unique_tab_ids[i])
-            print("final_page_url: ", final_page_url)
-        
-    
-            end = time.time()
-            print("Built graph of shape: ", pdf.shape, "in :", end - start)
-            pdf = pdf[pdf["top_level_domain"].notnull()]
+    df_label = pd.read_csv(label_path, on_bad_lines='skip')
+    # Step 1: Extract the last domain and add it as a new column
+    df_label['last_domain'] = df_label['redirect_domain_total'].apply(lambda x: re.split(r' \|\| ', x)[-1].strip())
 
-            # strip ".0" and concate to new visit id
-            pdf['visit_id'] = pdf['visit_id'].astype(float).astype(int)
-            pdf['visit_id'] = pdf['visit_id'].astype(str) + "_" + str(unique_tab_ids[i])
-            new_visit_id = str(visit_id)   + "_" + str(unique_tab_ids[i])    
+    # Step 2: Filter out rows where the last_domain is in the aff_network list
+    df_filtered = df_label[~df_label['last_domain'].isin(aff_network)]
 
-            # extract graph features   
-            pdf.groupby(["visit_id"]).apply(
-                apply_tasks,
-                new_visit_id,
-                features_file,
-                final_page_url,
-                ldb_file,
-                graph_columns,
-                graph_folder
-            )
-        
-            #graph_approach_features.pipline_only_extract_storage_features(pdf, visit_id, final_page_url, graph_columns, graph_folder)
-        
-            end = time.time()
-            print(f"Finished processing graph: ", {visit_id}, " with tab: ", unique_tab_ids[i], " in :", end - start)
-
-
-            # Collect site url domain
-            print("Collecting site url domain")
-            #features_path = os.path.join(graph_folder,"features_phase1.csv")
-            #df_features = pd.read_csv(features_path)
-            #if visit_id not in df_features['visit_id'].values:
-            #    continue   # ignore since this visit_id is failed to build graph
-
-            records_fname = "records.csv"
-            records_path = os.path.join(graph_folder, records_fname)
-        
-        
-            url_domain = gs.get_domain(url)   
-            landing_page_domain = gs.get_domain(final_page_url)
-            parent_page_url = site_url
-            parent_domain =  gs.get_domain(parent_page_url)
-            
-            df = pd.DataFrame({
-                'visit_id': [new_visit_id],
-                'url_domain': [url_domain],
-                'url': [url],
-                'landing_page_domain': [landing_page_domain],
-                'landing_page_url': [final_page_url],
-                'parent_page_url': [parent_page_url],
-                'parent_domain': [parent_domain]
-            })
-            if not os.path.exists(records_path):
-                df.to_csv(records_path, index=False)
-            else:
-                df.to_csv(records_path, mode="a", header=False, index=False)
-
-        except Exception as e:
-            tqdm.write(f"Error: {e}")
-            traceback.print_exc()
-            pass
+    df_filtered.to_csv(label_path, index=False)
+    print(f"Updated the label file at {df_label} after removing incomplete affiliate links.")
 
 
 
-def pipeline_for_affads(db_file, features_file, ldb_file, subfolder, OUTPUT, df_affiliate, df_non_aff):
+def pipeline(db_file, features_file, ldb_file, subfolder, OUTPUT):
     start = time.time()
     conn = gs.get_local_db_connection(db_file)
     try:
@@ -945,6 +742,11 @@ def pipeline_for_affads(db_file, features_file, ldb_file, subfolder, OUTPUT, df_
 
     fail = 0
     start = time.time()
+
+    all_graph_folder = os.path.join(OUTPUT, 'all_yt', subfolder)
+    if not os.path.exists(all_graph_folder):
+        os.makedirs(all_graph_folder)
+        print("graph_folder: ", all_graph_folder)
 
     graph_columns = [
         "visit_id",
@@ -988,77 +790,102 @@ def pipeline_for_affads(db_file, features_file, ldb_file, subfolder, OUTPUT, df_
 
         try:
 
-            #visited = [5707407853187437]
+            #visited = [3860905442139433]
             #if visit_id not in visited:
             #   continue
-            
-            """
+
+
             # In case crawl failed in middle, like pipeline broken. Restart the building.
+            # Check if the visit_id has already been processed
+            #if visit_already_processed(visit_id, all_graph_folder):
+            #    print('Already labeled. Continue.')
+            #    continue
 
-            storage_features_fname = "storage.csv"
-            features_path = os.path.join(graph_folder,storage_features_fname)
-            df_features = pd.read_csv(features_path)
-            # if visit_id in df_features["visit_id"], continue
-            if visit_id in df_features['visit_id'].values:
-                print("continue since already include")c
-                continue
-            """
 
+            unique_tab_ids, first_urls = gs.unique_tab_ids(conn, visit_id)
             
-            # check for affiliate
+            for i in range(len(unique_tab_ids)):
+                try: 
+                    url = first_urls[(visit_id, unique_tab_ids[i])]
+
+                    tqdm.write("• Building graph")
             
-            #df_affiliate = pd.read_csv(df_affiliate_records)
-            # extract the same visit id
-            df_affiliate_filtered = df_affiliate[df_affiliate['visit_id'] == visit_id]
-            # have affiliate link in this visit_id
-            if len(df_affiliate_filtered) != 0:
-                print("Should have affiliate link, checking...")
+                    tqdm.write(f"• • Visit ID: {visit_id} | TAG ID: {unique_tab_ids[i]} | URL: {url}")
 
-                graph_type = "affiliate_stateless" 
-                graph_folder = os.path.join(OUTPUT, graph_type, subfolder)
-
-                if not os.path.exists(graph_folder):
-                    os.makedirs(graph_folder)
-
-                unique_aff_tab_ids, first_aff_urls = gs.unique_aff_tab_ids(conn, visit_id, df_affiliate_filtered)
-                task_handler(unique_aff_tab_ids, first_aff_urls, site_url, visit_id, features_file, db_file, ldb_file, graph_columns, conn, graph_folder)
-
+                    start = time.time()
+                   
+                    pdf = read_sql_crawl_data_for_multi_tabs(visit_id, db_file, conn, unique_tab_ids[i])
+                   
+                    
+                    # this cannot be parallelized as it is reading from the sqlite file, only one process at a time can do that
+                    #pdf = read_sql_crawl_data(visit_id, db_file, conn)
+                    if pdf.empty:
+                        print("Fail to crawl this link since empty callstacks. Ignore")
+                        # TODO: add these failed to crawl link to OpenWPM and prepare for second time crawl
+                        continue
+                
+                    final_page_url = gs.get_final_page_url_for_ads(conn, visit_id, unique_tab_ids[i])
+                    print("final_page_url: ", final_page_url)
+                
             
-            # check for non-aff links
-            #df_non_aff = pd.read_csv(df_non_affiliate_records)
-            # extract the same visit id
-            df_non_aff_filtered = df_non_aff[df_non_aff['visit_id'] == visit_id]
-            if len(df_non_aff_filtered) != 0:
-                print("Should have other type of links, checking...")
+                    end = time.time()
+                    print("Built graph of shape: ", pdf.shape, "in :", end - start)
+                    pdf = pdf[pdf["top_level_domain"].notnull()]
 
-                graph_type = "others_stateless" 
-                graph_folder = os.path.join(OUTPUT, graph_type, subfolder)
+                    # strip ".0" and concate to new visit id
+                    pdf['visit_id'] = pdf['visit_id'].astype(float).astype(int)
+                    pdf['visit_id'] = pdf['visit_id'].astype(str) + "_" + str(unique_tab_ids[i])
+                    new_visit_id = str(visit_id)   + "_" + str(unique_tab_ids[i])    
 
-                if not os.path.exists(graph_folder):
-                    os.makedirs(graph_folder)
+                    # extract graph features   
+                    pdf.groupby(["visit_id"]).apply(
+                        apply_tasks,
+                        new_visit_id,
+                        features_file,
+                        final_page_url,
+                        ldb_file,
+                        graph_columns,
+                        all_graph_folder
+                    )
+                
+                    #graph_approach_features.pipline_only_extract_storage_features(pdf, visit_id, final_page_url, graph_columns, graph_folder)
+                
+                    end = time.time()
+                    print(f"Finished processing graph: ", {visit_id}, " with tab: ", unique_tab_ids[i], " in :", end - start)
 
-                unique_non_aff_tab_ids, first_non_aff_urls = gs.unique_non_aff_tab_ids(conn, visit_id, df_non_aff_filtered)
-                task_handler(unique_non_aff_tab_ids, first_non_aff_urls, site_url, visit_id, features_file, db_file, ldb_file, graph_columns, conn, graph_folder)
 
-            
+                    # Collect site url domain
+                    print("Collecting site url domain")
+                   
+                    records_fname = "records.csv"
+                    records_path = os.path.join(all_graph_folder, records_fname)
+                
+                
+                    url_domain = gs.get_domain(url)   
+                    landing_page_domain = gs.get_domain(final_page_url)
+                    parent_page_url = site_url
+                    parent_domain =  gs.get_domain(parent_page_url)
+                    
+                    df = pd.DataFrame({
+                        'visit_id': [new_visit_id],
+                        'url_domain': [url_domain],
+                        'url': [url],
+                        'landing_page_domain': [landing_page_domain],
+                        'landing_page_url': [final_page_url],
+                        'parent_page_url': [parent_page_url],
+                        'parent_domain': [parent_domain]
+                    })
+                    if not os.path.exists(records_path):
+                        df.to_csv(records_path, index=False)
+                    else:
+                        df.to_csv(records_path, mode="a", header=False, index=False)
 
-            """
-            # check for ads
-            unique_ad_tab_ids, first_ad_urls = gs.unique_ad_tab_ids(conn, visit_id)
+                except Exception as e:
+                    tqdm.write(f"Error: {e}")
+                    traceback.print_exc()
+                    pass
 
-            # have ads link in this visit_id
-            if len(unique_ad_tab_ids) != 0:
-                print("Processing ads link")
 
-                graph_type = "ads" 
-                graph_folder = os.path.join(OUTPUT, graph_type, subfolder)
-
-                if not os.path.exists(graph_folder):
-                    os.makedirs(graph_folder)
-
-                task_handler(unique_ad_tab_ids, first_ad_urls, site_url, visit_id, features_file, db_file, ldb_file, graph_columns, conn, graph_folder)
-            """
-  
 
         except Exception as e:
             fail += 1
@@ -1068,24 +895,36 @@ def pipeline_for_affads(db_file, features_file, ldb_file, subfolder, OUTPUT, df_
             pass
         
     
-    # Label the graph
-    print("Labelling the graph")
-    label_fname = "label.csv"
-    for i in ["others_stateless", "affiliate_stateless"]:
+    # extract redirect chains
+    print("extracting redirect chains")
+    
+    df_redirect_chains = extract_redirect_chains(all_graph_folder)
 
-        graph_type = i 
-        graph_folder = os.path.join(OUTPUT, graph_type, subfolder)
-        
-        labels_path = os.path.join(graph_folder, label_fname)
-        graph_fname = "graph.csv"     
-        graph_path = os.path.join(graph_folder,graph_fname)
+    # extract url features
+    print("extracting url features")
+    records_path = os.path.join(all_graph_folder, "records.csv")    
+
+    df_records = pd.read_csv(records_path, on_bad_lines='skip')
+    df_url_features = extract_url_additional_features(df_redirect_chains, df_records)
+    df_url_features = df_url_features.drop_duplicates(subset=['visit_id']) 
+    df_url_features.to_csv(os.path.join(all_graph_folder, "url_features.csv"))
 
 
-        df_Graph = pd.read_csv(graph_path)
-        df_labels = label_url_type(df_Graph, graph_type)
+    # label graph
+    print("labeling graph")
+    rule_based_label_path = os.path.join(all_graph_folder, 'rule_based_label.csv')
+    df_rule_based_label = aff_rules.process_crawl(df_redirect_chains)
+    df_rule_based_label.to_csv(rule_based_label_path, index=False)
 
-        df_labels.to_csv(labels_path, index=False)
-        
+
+    # separate graph based on the label
+    print("separating graph based on label")
+    rule_based_aff_folder = os.path.join(OUTPUT, 'rule_based_aff_yt')
+    rule_based_others_folder = os.path.join(OUTPUT, 'rule_based_others_yt')
+    separate_graph_by_label(subfolder, all_graph_folder, df_rule_based_label, rule_based_aff_folder, rule_based_others_folder)
+    
+    # delete incomplete affiliate graph if end by affiliate network
+    delete_incomplete_affiliate_link(subfolder, rule_based_aff_folder)
 
 
 if __name__ == "__main__":
@@ -1111,59 +950,32 @@ if __name__ == "__main__":
     OUTPUT = args.output
     TAG = args.tag
 
-    # DB_FILE = os.path.join(FOLDER, "crawl-data.sqlite")
-    # LDB_FILE = os.path.join(FOLDER, "content.ldb")da
-
-    # pipeline(DB_FILE, FEATURES_FILE, LDB_FILE, TAG)
-
-    #for i in range(0, 3000, 1000):
-    #print("Processing:", i)
-
-    #DB_FILE = os.path.join(FOLDER, f"datadir_test_21-0/crawl-data.sqlite")
-    #LDB_FILE = os.path.join(FOLDER, f"datadir_test_21-0/content.ldb")
-    BD_PATH = "/home/data/chensun/affi_project/purl_test/OpenWPM_7/datadir_tranco-aff-normal-33000/click_newBrowser/"
-    DB_FILE = "/home/data/chensun/affi_project/purl_test/OpenWPM_7/datadir_tranco-aff-normal-33000/click_newBrowser/crawl-data.sqlite"
-    LDB_FILE = "/home/data/chensun/affi_project/purl_test/OpenWPM_7/datadir_tranco-aff-normal-33000/click_newBrowser/content.ldb"
+    BD_PATH = "/home/data/chensun/affi_project/purl_test/OpenWPM_2/datadir_youtube_aff-normal-120778/"
+    DB_FILE = "/home/data/chensun/affi_project/purl_test/OpenWPM_2/datadir_youtube_aff-normal-120778/crawl-data.sqlite"
+    LDB_FILE = "/home/data/chensun/affi_project/purl_test/OpenWPM_2/datadir_youtube_aff-normal-120778/content.ldb"
 
     print(DB_FILE, LDB_FILE)
 
     subfolder = "crawl_"+ TAG
-    df_affiliate_records = pd.DataFrame()
-    df_non_affiliate_records= pd.DataFrame()
 
-    for crawl_id in os.listdir(BD_PATH):
-        ignore_file = ['content.ldb', 'crawl-data.sqlite', 'openwpm.log', 'affiliate_records.csv', 'non_affiliate_records.csv']
-        if crawl_id in ignore_file:
-            print("\tIgnore this folder")
-            continue
-        each_crawl =  os.path.join(BD_PATH, crawl_id)
-        for filename in os.listdir(each_crawl):          
-            if filename == "other_links_records.csv": 
-                file_path = os.path.join(each_crawl, filename)
-                #print("non_aff: ", file_path) 
-                df = pd.read_csv(file_path, on_bad_lines='skip')
-                df_non_affiliate_records = df_non_affiliate_records.append(df)
-            elif filename == "affiliate_records.csv":
-                file_path = os.path.join(each_crawl, filename)
-                #print("aff: ", file_path) 
-                df = pd.read_csv(file_path, on_bad_lines='skip')
-                df_affiliate_records = df_affiliate_records.append(df)
+    pipeline(DB_FILE, FEATURES_FILE, LDB_FILE, subfolder, OUTPUT) 
     
-
-    if len(df_affiliate_records) == 0:
-        print(f"No affiliate link be extracted")
-        df_affiliate_records = pd.DataFrame(columns=["url", "label", "tranco_index", "site", "visit_id", "aff_url"])
-    
-    if len(df_non_affiliate_records) == 0:
-        print(f"No non-affiliate link be extracted")
-        df_non_affiliate_records = pd.DataFrame(columns=["url", "label", "tranco_index", "site", "visit_id", "aff_url"])
-
-    #df_affiliate_records.to_csv("/home/data/chensun/affi_project/purl_test/OpenWPM_8/datadir_tranco-aff-normal-32000/collect/affiliate_records.csv")
-    #df_non_affiliate_records.to_csv("/home/data/chensun/affi_project/purl_test/OpenWPM_8/datadir_tranco-aff-normal-32000/collect/non_affiliate_records.csv")
-    
-    #graph_folder = os.path.abspath('../output/affiliate')  
-    #print(graph_folder)
-    #TAG = str(0)
-    pipeline_for_affads(DB_FILE, FEATURES_FILE, LDB_FILE, subfolder, OUTPUT, df_affiliate_records, df_non_affiliate_records)  # change this
+    # copy records into yt_records
+    clicked_link = 'youtube_clicked_links.csv'
+    ignored_link = 'youtube_ignored_links.csv'
+    youtube_ignored_high_freq_links = 'youtube_ignored_high_freq_links.csv'
+    clicked_link_path = os.path.join(BD_PATH, clicked_link)
+    ignored_link_path = os.path.join(BD_PATH, ignored_link)
+    youtube_ignored_high_freq_path = os.path.join(BD_PATH, youtube_ignored_high_freq_links)
+   
+    yt_records_folder = '/home/data/chensun/affi_project/yt_records'
+    yt_records_path = os.path.join(yt_records_folder, TAG)
+    # Ensure the directory exists and copy the files
+    if not os.path.exists(yt_records_path):
+        os.makedirs(yt_records_path)
+        shutil.copyfile(clicked_link_path, os.path.join(yt_records_path, clicked_link))
+        shutil.copyfile(ignored_link_path, os.path.join(yt_records_path, ignored_link))
+        shutil.copyfile(youtube_ignored_high_freq_path, os.path.join(yt_records_path, youtube_ignored_high_freq_links))
+        print(f"Files copied to {yt_records_path}")
   
     print(f"finish: {BD_PATH}")

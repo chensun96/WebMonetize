@@ -5,7 +5,7 @@ import pandas as pd
 import gc
 from yaml import full_load
 
-from checking_affiliate import check_affiliate_link
+#from checking_affiliate import check_affiliate_link
 from feature_extraction import extract_graph_features
 from feature_extraction import extract_graph_features_phase1
 from networkx.readwrite import json_graph
@@ -1002,7 +1002,7 @@ def pipeline_for_affads(db_file, features_file, ldb_file, subfolder, OUTPUT, db_
             if visit_id in df_features['visit_id'].values:
                 print("continue since already include")c
                 continue
-            """
+           
 
 
             
@@ -1029,7 +1029,7 @@ def pipeline_for_affads(db_file, features_file, ldb_file, subfolder, OUTPUT, db_
             """
 
             # check for non-aff links
-            non_aff_path = os.path.join(non_aff_link_folder, "other_links_records.csv")
+            non_aff_path = os.path.join(non_aff_link_folder, "website_other_links/other_links_records.csv")
             df_non_aff = pd.read_csv(non_aff_path)
             # extract the same visit id
             df_non_aff = df_non_aff[df_non_aff['visit_id'] == visit_id]
@@ -1048,7 +1048,7 @@ def pipeline_for_affads(db_file, features_file, ldb_file, subfolder, OUTPUT, db_
                 task_handler(unique_non_aff_tab_ids, first_non_aff_urls, site_url, visit_id, features_file, db_file, ldb_file, graph_columns, conn, graph_folder)
 
 
-            
+            """
             # check for ads
             unique_ad_tab_ids, first_ad_urls = gs.unique_ad_tab_ids(conn, visit_id)
 
@@ -1077,7 +1077,7 @@ def pipeline_for_affads(db_file, features_file, ldb_file, subfolder, OUTPUT, db_
     # Label the graph
     print("Labelling the graph")
     label_fname = "label.csv"
-    for i in ["affiliate"]:
+    for i in ["others"]:
 
         graph_type = i 
         graph_folder = os.path.join(OUTPUT, graph_type, subfolder)
@@ -1127,9 +1127,9 @@ if __name__ == "__main__":
 
     #DB_FILE = os.path.join(FOLDER, f"datadir_test_21-0/crawl-data.sqlite")
     #LDB_FILE = os.path.join(FOLDER, f"datadir_test_21-0/content.ldb")
-    BD_PATH = "/home/data/chensun/affi_project/purl_test/OpenWPM_20/datadir_tranco-aff-normal-10000/click/0"
-    DB_FILE = "/home/data/chensun/affi_project/purl_test/OpenWPM_20/datadir_tranco-aff-normal-10000/click/crawl-data.sqlite"
-    LDB_FILE = "/home/data/chensun/affi_project/purl_test/OpenWPM_20/datadir_tranco-aff-normal-10000/click/content.ldb"
+    BD_PATH = "/home/data/chensun/affi_project/purl_test/OpenWPM_15/datadir_tranco-aff-normal-18000"
+    DB_FILE = "/home/data/chensun/affi_project/purl_test/OpenWPM_15/datadir_tranco-aff-normal-18000/crawl-data.sqlite"
+    LDB_FILE = "/home/data/chensun/affi_project/purl_test/OpenWPM_15/datadir_tranco-aff-normal-18000/content.ldb"
 
 
     print(DB_FILE, LDB_FILE)

@@ -5,7 +5,7 @@ import pandas as pd
 import gc
 from yaml import full_load
 
-from checking_affiliate import check_affiliate_link
+#from checking_affiliate import check_affiliate_link
 from feature_extraction import extract_graph_features
 from feature_extraction import extract_graph_features_phase1
 from networkx.readwrite import json_graph
@@ -1110,19 +1110,10 @@ if __name__ == "__main__":
     OUTPUT = args.output
     TAG = args.tag
 
-    # DB_FILE = os.path.join(FOLDER, "crawl-data.sqlite")
-    # LDB_FILE = os.path.join(FOLDER, "content.ldb")da
-
-    # pipeline(DB_FILE, FEATURES_FILE, LDB_FILE, TAG)
-
-    #for i in range(0, 3000, 1000):
-    #print("Processing:", i)
-
-    #DB_FILE = os.path.join(FOLDER, f"datadir_test_21-0/crawl-data.sqlite")
-    #LDB_FILE = os.path.join(FOLDER, f"datadir_test_21-0/content.ldb")
-    BD_PATH = "/home/data/chensun/affi_project/purl_test/OpenWPM_6/datadir_tranco-aff-normal-34000/click/"
-    DB_FILE = "/home/data/chensun/affi_project/purl_test/OpenWPM_6/datadir_tranco-aff-normal-34000/click/crawl-data.sqlite"
-    LDB_FILE = "/home/data/chensun/affi_project/purl_test/OpenWPM_6/datadir_tranco-aff-normal-34000/click/content.ldb"
+    
+    BD_PATH = "/home/data/chensun/affi_project/purl_test/OpenWPM_15/datadir_tranco-aff-normal-18000/click/"
+    DB_FILE = "/home/data/chensun/affi_project/purl_test/OpenWPM_15/datadir_tranco-aff-normal-18000/click/crawl-data.sqlite"
+    LDB_FILE = "/home/data/chensun/affi_project/purl_test/OpenWPM_15/datadir_tranco-aff-normal-18000/click/content.ldb"
 
     print(DB_FILE, LDB_FILE)
 
@@ -1157,12 +1148,7 @@ if __name__ == "__main__":
         print(f"No non-affiliate link be extracted")
         df_non_affiliate_records = pd.DataFrame(columns=["url", "label", "tranco_index", "site", "visit_id", "aff_url"])
 
-    #df_affiliate_records.to_csv("/home/data/chensun/affi_project/purl_test/OpenWPM_8/datadir_tranco-aff-normal-32000/collect/affiliate_records.csv")
-    #df_non_affiliate_records.to_csv("/home/data/chensun/affi_project/purl_test/OpenWPM_8/datadir_tranco-aff-normal-32000/collect/non_affiliate_records.csv")
-    
-    #graph_folder = os.path.abspath('../output/affiliate')  
-    #print(graph_folder)
-    #TAG = str(0)
+
     pipeline_for_aff_others(DB_FILE, FEATURES_FILE, LDB_FILE, subfolder, OUTPUT, df_affiliate_records, df_non_affiliate_records)  # change this
   
     print(f"finish: {BD_PATH}")
